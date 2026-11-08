@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>CPaste</title>
+  <path d="M49 16H28c-7 0-12 5-12 12v8c0 7 5 12 12 12h21" fill="none" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M27 26h14M27 32h14M27 38h9" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,11 @@
+node_modules
+dist
+src-tauri/target
+.DS_Store
+.private/
+*.key
+*.key.pub
+
+latest.json
+src-tauri/gen/schemas/
+__pycache__/

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>CPaste</title>
+  <rect x="48" y="48" width="928" height="928" rx="216" fill="#ffffff" stroke="#e8e8e8" stroke-width="2"/>
+  <path d="M704 300H416c-64 0-114 50-114 114v196c0 64 50 114 114 114h288" fill="none" stroke="#111111" stroke-width="76" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M418 430h192M418 512h192M418 594h132" fill="none" stroke="#111111" stroke-width="34" stroke-linecap="round"/>
+</svg>

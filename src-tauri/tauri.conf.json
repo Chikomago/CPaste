@@ -1,0 +1,68 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CPaste",
+  "version": "0.1.0",
+  "identifier": "app.cpaste.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "",
+        "width": 350,
+        "height": 600,
+        "minWidth": 120,
+        "minHeight": 180,
+        "maxWidth": 10000,
+        "maxHeight": 10000,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true,
+        "resizable": false,
+        "focusable": false,
+        "acceptFirstMouse": true,
+        "skipTaskbar": true,
+        "alwaysOnTop": true,
+        "center": true,
+        "theme": null
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "createUpdaterArtifacts": true,
+    "license": "GPL-3.0-only",
+    "homepage": "https://github.com/Chikomago/CPaste",
+    "resources": {
+      "../LICENSE": "LICENSE",
+      "../licenses/": "licenses/"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIzOTgzQTQ4MkMwMDhCNzIKUldSeWl3QXNTRHFZSTBCQ3MwRVg3N3pCMmZHTlpMeFl2R21GSWRwWis5U0tGQTlwV3g2QmRTTWgK",
+      "endpoints": [
+        "https://github.com/Chikomago/CPaste/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}
