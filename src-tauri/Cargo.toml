@@ -1,6 +1,6 @@
 [package]
 name = "cpaste"
-version = "0.1.0"
+version = "0.1.1"
 license = "GPL-3.0-only"
 authors = ["chikomago"]
 repository = "https://github.com/Chikomago/CPaste"

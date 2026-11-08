@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory() as temporary:
         assert signature, f'Empty signature: {signature_name}'
         platforms[platform] = {
             'signature': signature,
-            'url': release['url'].replace('/tag/', '/download/') + '/' + quote(name),
+            'url': release['url'].split('/releases/')[0] + '/releases/download/' + quote(tag, safe='') + '/' + quote(name),
         }
 manifest = {
     'version': tag.removeprefix('v'),

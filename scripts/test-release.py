@@ -16,7 +16,7 @@ class ReleaseManifestTests(unittest.TestCase):
                  'CPaste_0.1.0_windows_x64.exe']
         return {'assets': [{'name': name + suffix, 'size': 123}
                            for name in names for suffix in ['', '.sig']],
-                'body': 'Release notes', 'url': 'https://github.com/Chikomago/CPaste/releases/tag/v0.1.0',
+                'body': 'Release notes', 'url': 'https://github.com/Chikomago/CPaste/releases/tag/untagged-temporary-id',
                 'isDraft': True}
 
     def generate(self, release):
@@ -42,6 +42,7 @@ class ReleaseManifestTests(unittest.TestCase):
         self.assertEqual(set(manifest['platforms']), {'darwin-aarch64', 'darwin-x86_64', 'windows-x86_64'})
         self.assertEqual(manifest['version'], '0.1.0')
         self.assertIn('/releases/download/v0.1.0/', manifest['platforms']['windows-x86_64']['url'])
+        self.assertNotIn('untagged', manifest['platforms']['windows-x86_64']['url'])
         self.assertTrue(manifest['platforms']['darwin-aarch64']['url'].endswith('aarch64.app.tar.gz'))
 
     def test_missing_signature_blocks_publication(self):
