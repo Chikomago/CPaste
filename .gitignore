@@ -9,3 +9,5 @@ src-tauri/target
 latest.json
 src-tauri/gen/schemas/
 __pycache__/
+release-assets/
+release-backup/

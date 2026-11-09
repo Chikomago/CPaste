@@ -1,0 +1,137 @@
+name: Rebuild existing release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Published release to replace (same version requires manual download)'
+        default: 'v0.1.1'
+        required: true
+      source_ref:
+        description: 'Source branch or commit to build'
+        default: 'main'
+        required: true
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+      - id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          python3 scripts/check-release.py "$RELEASE_TAG"
+          python3 scripts/test-release.py
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = false
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.5.1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:segmentation
+      - name: Build signed bundles
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: '-'
+        run: pnpm tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --locked
+      - run: python scripts/stage-release-assets.py ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rebuilt-${{ matrix.target }}
+          path: release-assets/*
+          if-no-files-found: error
+  replace:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rebuilt-*
+          path: release-assets
+          merge-multiple: true
+      - name: Back up existing assets and release metadata
+        run: |
+          mkdir release-backup
+          gh release view "$RELEASE_TAG" --json body,name,isDraft > release-backup/metadata.json
+          gh release download "$RELEASE_TAG" --dir release-backup
+      - uses: actions/upload-artifact@v4
+        with:
+          name: previous-release-backup
+          path: release-backup/*
+          retention-days: 30
+      - name: Replace bundles and update manifest
+        run: |
+          test "$(find release-assets -type f | wc -l)" -eq 8
+          git archive --format=zip --prefix=CPaste/ -o "release-assets/CPaste_${RELEASE_TAG#v}_source.zip" "$SOURCE_SHA"
+          cp docs/release-notes.md rebuilt-notes.md
+          printf '\n本次同版本重建包含设置布局调整和历史总条数显示。已安装 0.1.1 的用户需要手动下载安装。\n\n构建源码：https://github.com/%s/commit/%s\n源码压缩包：CPaste_%s_source.zip\n' "$GITHUB_REPOSITORY" "$SOURCE_SHA" "${RELEASE_TAG#v}" >> rebuilt-notes.md
+          gh release edit "$RELEASE_TAG" --draft=true
+          touch release-hidden
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          gh release edit "$RELEASE_TAG" --notes-file rebuilt-notes.md
+          python3 scripts/publish-update-manifest.py "$RELEASE_TAG"
+          gh release upload "$RELEASE_TAG" latest.json --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest
+          rm release-hidden
+      - name: Restore previous release if replacement fails
+        if: failure()
+        run: |
+          if test -f release-hidden; then
+            python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          tag = os.environ['RELEASE_TAG']
+          backup = pathlib.Path('release-backup')
+          metadata = json.loads((backup / 'metadata.json').read_text())
+          files = [str(p) for p in backup.iterdir() if p.name != 'metadata.json']
+          subprocess.run(['gh', 'release', 'upload', tag, *files, '--clobber'], check=True)
+          pathlib.Path('previous-notes.md').write_text(metadata['body'])
+          subprocess.run(['gh', 'release', 'edit', tag, '--notes-file', 'previous-notes.md', '--draft=false', '--latest'], check=True)
+          PY
+          fi
