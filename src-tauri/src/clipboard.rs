@@ -462,6 +462,61 @@ pub(crate) fn should_paste_plain(
         _ => false,
     })
 }
+
+fn send_paste_shortcut_native() -> Result<(), String> {
+    // macOS input-source/layout APIs used by Enigo require the main thread.
+    // Keep this guard before Enigo initialization and every key event.
+    #[cfg(target_os = "macos")]
+    let _main_thread = tauri_nspanel::objc2::MainThreadMarker::new()
+        .ok_or("系统按键发送线程不正确，请重启 CPaste")?;
+    let mut enigo = Enigo::new(&Settings::default()).map_err(err)?;
+    #[cfg(target_os = "macos")]
+    let modifier = Key::Meta;
+    #[cfg(target_os = "windows")]
+    let modifier = Key::Control;
+    enigo.key(modifier, Direction::Press).map_err(err)?;
+    let click = enigo.key(Key::Unicode('v'), Direction::Click);
+    let release = enigo.key(modifier, Direction::Release);
+    click.map_err(err)?;
+    release.map_err(err)
+}
+
+fn send_paste_shortcut(app: &AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        if tauri_nspanel::objc2::MainThreadMarker::new().is_some() {
+            return send_paste_shortcut_native();
+        }
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        app.run_on_main_thread(move || {
+            let _ = sender.send(send_paste_shortcut_native());
+        })
+        .map_err(err)?;
+        // Only the blocking paste worker waits; the UI thread remains free.
+        receiver.recv().map_err(err)?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        send_paste_shortcut_native()
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod keyboard_thread_tests {
+    use super::*;
+
+    #[test]
+    fn background_key_send_is_rejected_before_native_layout_lookup() {
+        // This test must not create an Enigo instance or send a real key event.
+        let error = std::thread::spawn(send_paste_shortcut_native)
+            .join()
+            .expect("Native keyboard guard must not crash")
+            .expect_err("macOS key events must run on the main thread");
+        assert_eq!(error, "系统按键发送线程不正确，请重启 CPaste");
+    }
+}
+
 pub(crate) fn paste_with_mode(
     app: AppHandle,
     s: &State,
@@ -521,24 +576,7 @@ pub(crate) fn paste_with_mode(
         return Ok("copied".into());
     }
     thread::sleep(Duration::from_millis(65));
-    let mut enigo = match Enigo::new(&Settings::default()) {
-        Ok(v) => v,
-        Err(e) => {
-            let _ = reveal_picker(app.clone(), edge.to_string());
-            return Err(err(e));
-        }
-    };
-    #[cfg(target_os = "macos")]
-    let modifier = Key::Meta;
-    #[cfg(target_os = "windows")]
-    let modifier = Key::Control;
-    let result = (|| {
-        enigo.key(modifier, Direction::Press).map_err(err)?;
-        let click = enigo.key(Key::Unicode('v'), Direction::Click);
-        let release = enigo.key(modifier, Direction::Release);
-        click.map_err(err)?;
-        release.map_err(err)
-    })();
+    let result = send_paste_shortcut(&app);
     if result.is_err() || !preferences.close_after_paste {
         if result.is_ok() {
             thread::sleep(Duration::from_millis(250));
