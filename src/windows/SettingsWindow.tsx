@@ -5,7 +5,6 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import React from 'react';
 import { useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Info, AppWindow, Clipboard, Database, Download, Keyboard, List, Palette, Power, Search, Shield, Upload, WholeWord, X } from 'lucide-react';
 import { ActionShortcut, Preferences, InstalledApp } from '../types';
 import { actionShortcutLabels, defaults } from '../preferences';
@@ -97,7 +96,6 @@ export function SettingsWindow() {
   const clearHistory = async () => { if (clearing) return; setClearing(true); try { await call('clear_clips'); setDatabaseSize(await call<number>('get_database_size')); setClearOpen(false); } catch (error) { setNotice(`清空失败：${String(error)}`); } finally { setClearing(false); } };
   return <div className="settings-window">
     {clearOpen && <ConfirmDialog title={tr('清空所有记录')} description={tr('将删除全部剪贴板记录，包括置顶和收藏，无法恢复。设置和系统剪贴板不受影响。')} confirmLabel={tr('清空所有记录')} busy={clearing} onCancel={() => setClearOpen(false)} onConfirm={() => void clearHistory()}/>}
-    <button className="settings-close" title={tr('关闭设置')} aria-label={tr('关闭设置')} onClick={() => void getCurrentWindow().close()}><X size={19}/></button>
     <div className="settings-layout">
       <nav className="settings-nav" aria-label={tr('设置分类')}>
         <div className="settings-nav-items">{categories.map(c => <button key={c.id} className={category === c.id ? 'active' : ''} onClick={() => setCategory(c.id)}><c.icon size={17}/>{tr(c.label)}</button>)}</div>

@@ -6,6 +6,7 @@ export function setLanguage(language: Language) {
 }
 export function isEnglish() { return current === 'en-US'; }
 const english: Record<string, string> = {
+  '共 {count} 条':'{count} items',
   '开发版不安装更新，请使用正式安装包':'Updates cannot be installed in a development build. Use an installed release.', '请先检查更新':'Check for updates first', '更新尚未安装':'The update has not been installed',
   '关于':'About','版本':'Version','作者':'Author','项目地址':'Project','协议':'License',
   '自动检查更新':'Check for updates automatically','启动后及每 6 小时检查，安装前由你确认':'Check on startup and every 6 hours. Ask before installing.',

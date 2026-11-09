@@ -9,6 +9,15 @@ Windows 和 macOS 本机剪贴板记录应用。使用 Tauri 2、React、Rust �
 支持剪贴板分词和编辑，支持设置使用上下左右侧边栏和常规跟随光标视图。
 
 
+下载安装包：[GitHub Releases](https://github.com/Chikomago/CPaste/releases/latest)。macOS 支持 Apple Silicon 和 Intel，Windows 支持 x64。
+
+## 功能
+
+- 保存文本、富文本、图片和文件记录，支持搜索、排序、编辑、置顶和收藏。
+- 使用快捷键呼出面板，支持居中、跟随光标及上下左右四侧布局；底部左侧显示历史总条数。
+- 支持纯文本、文件路径粘贴，来源应用黑名单、敏感内容遮盖，以及备份与恢复。
+- “设置 → 关于”提供作者、项目地址、协议与更新检查，支持下载并安装签名验证的更新包。
+
 ## 分词
 
 支持 **UTF-8 编码的 `.txt` 和 `.dict` 文本文件**，可使用每行一个词或 jieba 格式：
@@ -41,14 +50,6 @@ macOS 首次直接粘贴可能需要在“系统设置 → 隐私与安全性 �
 CPaste 的界面与交互设计参考了 [EcoPaste](https://github.com/EcoPasteHub/EcoPaste)，感谢 EcoPaste 项目提供的设计启发。
 
 
-## 下载与更新
-
-在 [GitHub Releases](https://github.com/Chikomago/CPaste/releases) 下载安装包。macOS 提供 Apple Silicon 和 Intel 版本，Windows 提供 x64 版本。
-
-“设置 → 关于”提供版本、作者、项目地址、协议和在线更新。默认在启动后及每 6 小时检查更新，由用户确认下载和安装；更新包必须通过签名校验。开发版不自动检查或安装更新。
-
 ## 协议
 
-Copyright © 2026 chikomago。项目采用 [GPL-3.0-only](LICENSE)，仅限 GPL 第 3 版。
-
-发布流程与更新密钥管理见 [发布说明](docs/releasing.md)。
+ [GPL-3.0-only](LICENSE)

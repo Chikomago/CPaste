@@ -47,7 +47,7 @@ export function AboutSettings({ autoCheck, onAutoCheck }: { autoCheck: boolean; 
     <Setting label={tr('协议')}><button type="button" className="about-link" onClick={() => void call('open_project_link', { kind: 'license' }).catch(e => setError(String(e)))}>GPL-3.0-only<ExternalLink size={13}/></button></Setting>
     <Toggle label={tr('自动检查更新')} help={tr('启动后及每 6 小时检查，安装前由你确认')} checked={autoCheck} onChange={onAutoCheck}/>
     <div className="about-update" aria-live="polite">
-      <div className="about-update-heading"><span>{tr(label)}{status?.version && ` · v${status.version}`}</span>
+      <div className="about-update-heading setting-row"><span>{tr(label)}{status?.version && ` · v${status.version}`}</span>
         {phase === 'ready' ? <button type="button" disabled={busy} className="permission-button" onClick={() => void action('restart_after_update')}>{tr('重启应用')}</button>
           : phase === 'available' || (phase === 'error' && status?.version) ? <button type="button" className="permission-button" disabled={busy} onClick={() => void action('install_update')}>{tr('下载并安装')}</button>
           : <button type="button" className="permission-button" disabled={busy || phase === 'checking' || updating || !status} onClick={() => void action('check_for_updates')}>{tr('检查更新')}</button>}

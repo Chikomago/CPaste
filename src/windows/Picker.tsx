@@ -352,6 +352,7 @@ export function Picker() {
       {pinnedVisible.length > 0 && <div className="pinned-list" aria-label={tr('置顶记录')} style={isHorizontal ? { width: 'var(--pinned-width)' } : undefined}>{pinnedVisible.map(renderRow)}</div>}
       <div className="result-list">{regularVisible.map(renderRow)}{visible.length === 0 && <div className="empty-state"><Search size={24}/><strong>{tr(query ? '没有匹配的记录' : '还没有记录')}</strong><span>{tr(query ? '换个关键词或类型试试' : '复制内容后会显示在这里')}</span></div>}</div>
     </div></div>
+    <footer className="picker-footer">{tr('共 {count} 条').replace('{count}', clips.length.toLocaleString())}</footer>
 
     {tokenClip && <TokenDialog key={tokenClip.id} clip={tokenClip} dictionaryKey={dictionaryKey} busy={busy} onClose={() => setTokenClip(null)} onSubmit={submitFragment}/>}
     {deleteId !== null && <ConfirmDialog title={tr('删除记录')} description={tr('删除这条记录？删除后无法恢复。')} confirmLabel={tr('删除')} busy={busy} onCancel={() => setDeleteId(null)} onConfirm={() => { const id = deleteId; setDeleteId(null); void action('delete_clip', { id }); }}/>}
