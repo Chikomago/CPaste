@@ -59,116 +59,123 @@ pub(crate) fn build_tray_menu(
 }
 
 #[tauri::command]
-pub(crate) fn show_clip_context_menu(
+pub(crate) async fn show_clip_context_menu(
     app: AppHandle,
-    s: tauri::State<Arc<State>>,
+    s: tauri::State<'_, Arc<State>>,
     id: i64,
     x: f64,
     y: f64,
     _edge: String,
 ) -> Result<(), String> {
-    let (kind, pinned, favorite, plain_text, html, rtf): (
-        String,
-        bool,
-        bool,
-        String,
-        Option<String>,
-        Option<String>,
-    ) = db(&s)?
-        .query_row(
-            "SELECT kind,pinned,favorite,plain_text,html,rtf FROM clips WHERE id=?1",
-            [id],
-            |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                    r.get(5)?,
-                ))
-            },
-        )
-        .map_err(err)?;
-    let p = prefs(&s)?;
-    let menu = Menu::new(&app).map_err(err)?;
-    let add = |action: &str, label: &str| -> Result<(), String> {
-        let shortcut = p
-            .action_shortcuts
-            .get(action)
-            .map(String::as_str)
-            .unwrap_or("");
-        let item = MenuItem::with_id(
-            &app,
-            format!("clip-menu:{id}:{action}"),
-            menu_text(&p.language, label),
-            true,
-            if shortcut.is_empty() {
-                None
-            } else {
-                Some(shortcut)
-            },
-        )
-        .map_err(err)?;
-        menu.append(&item).map_err(err)
-    };
-    add("paste", "粘贴")?;
-    if kind == "rich" || kind == "files" {
-        add(
-            "paste_plain",
-            if kind == "files" {
-                "粘贴文件路径"
-            } else {
-                "粘贴为纯文本"
-            },
-        )?;
-    }
-    if (kind == "rich" && p.default_plain_paste) || (kind == "files" && p.default_file_paths) {
-        add(
-            "paste_original",
-            if kind == "files" {
-                "粘贴文件"
-            } else {
-                "粘贴原格式"
-            },
-        )?;
-    }
-    add("copy", "复制到剪贴板")?;
-    if kind == "rich" || kind == "files" {
-        add(
-            "copy_plain",
-            if kind == "files" {
-                "复制文件路径"
-            } else {
-                "复制为纯文本"
-            },
-        )?;
-    }
-    if (kind == "rich" && p.default_plain_copy) || (kind == "files" && p.default_copy_file_paths) {
-        add(
-            "copy_original",
-            if kind == "files" {
-                "复制文件"
-            } else {
-                "复制原格式"
-            },
-        )?;
-    }
-    add("preview", "预览内容")?;
-    if (kind == "text" || kind == "rich")
-        && !(p.sensitive_action == "mask"
-            && contains_sensitive(&plain_text, html.as_deref(), rtf.as_deref(), &[]))
-    {
-        add("edit", "编辑内容")?;
-        if !plain_text.trim().is_empty() {
-            add("segment", "分词")?;
+    let state = s.inner().clone();
+    crate::background::run(move || {
+        let s = state;
+        let (kind, pinned, favorite, plain_text, html, rtf): (
+            String,
+            bool,
+            bool,
+            String,
+            Option<String>,
+            Option<String>,
+        ) = db(&s)?
+            .query_row(
+                "SELECT kind,pinned,favorite,plain_text,html,rtf FROM clips WHERE id=?1",
+                [id],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
+                },
+            )
+            .map_err(err)?;
+        let p = prefs(&s)?;
+        let menu = Menu::new(&app).map_err(err)?;
+        let add = |action: &str, label: &str| -> Result<(), String> {
+            let shortcut = p
+                .action_shortcuts
+                .get(action)
+                .map(String::as_str)
+                .unwrap_or("");
+            let item = MenuItem::with_id(
+                &app,
+                format!("clip-menu:{id}:{action}"),
+                menu_text(&p.language, label),
+                true,
+                if shortcut.is_empty() {
+                    None
+                } else {
+                    Some(shortcut)
+                },
+            )
+            .map_err(err)?;
+            menu.append(&item).map_err(err)
+        };
+        add("paste", "粘贴")?;
+        if kind == "rich" || kind == "files" {
+            add(
+                "paste_plain",
+                if kind == "files" {
+                    "粘贴文件路径"
+                } else {
+                    "粘贴为纯文本"
+                },
+            )?;
         }
-    }
-    add("favorite", if favorite { "取消收藏" } else { "收藏" })?;
-    add("pin", if pinned { "取消置顶" } else { "置顶" })?;
-    add("delete", "删除记录")?;
-    let window = app.get_webview_window("main").ok_or("选择面板不可用")?;
-    window
-        .popup_menu_at(&menu, tauri::LogicalPosition::new(x, y))
-        .map_err(err)
+        if (kind == "rich" && p.default_plain_paste) || (kind == "files" && p.default_file_paths) {
+            add(
+                "paste_original",
+                if kind == "files" {
+                    "粘贴文件"
+                } else {
+                    "粘贴原格式"
+                },
+            )?;
+        }
+        add("copy", "复制到剪贴板")?;
+        if kind == "rich" || kind == "files" {
+            add(
+                "copy_plain",
+                if kind == "files" {
+                    "复制文件路径"
+                } else {
+                    "复制为纯文本"
+                },
+            )?;
+        }
+        if (kind == "rich" && p.default_plain_copy)
+            || (kind == "files" && p.default_copy_file_paths)
+        {
+            add(
+                "copy_original",
+                if kind == "files" {
+                    "复制文件"
+                } else {
+                    "复制原格式"
+                },
+            )?;
+        }
+        add("preview", "预览内容")?;
+        if (kind == "text" || kind == "rich")
+            && !(p.sensitive_action == "mask"
+                && contains_sensitive(&plain_text, html.as_deref(), rtf.as_deref(), &[]))
+        {
+            add("edit", "编辑内容")?;
+            if !plain_text.trim().is_empty() {
+                add("segment", "分词")?;
+            }
+        }
+        add("favorite", if favorite { "取消收藏" } else { "收藏" })?;
+        add("pin", if pinned { "取消置顶" } else { "置顶" })?;
+        add("delete", "删除记录")?;
+        let window = app.get_webview_window("main").ok_or("选择面板不可用")?;
+        window
+            .popup_menu_at(&menu, tauri::LogicalPosition::new(x, y))
+            .map_err(err)
+    })
+    .await
 }

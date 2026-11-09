@@ -54,16 +54,19 @@ pub(crate) fn database_path(app: &AppHandle) -> Result<std::path::PathBuf, Strin
     Ok(app.path().app_data_dir().map_err(err)?.join("cpaste.db"))
 }
 #[tauri::command]
-pub(crate) fn get_database_size(app: AppHandle) -> Result<u64, String> {
-    let path = database_path(&app)?;
-    Ok([
-        path.clone(),
-        path.with_file_name("cpaste.db-wal"),
-        path.with_file_name("cpaste.db-shm"),
-    ]
-    .iter()
-    .filter_map(|file| std::fs::metadata(file).ok().map(|metadata| metadata.len()))
-    .sum())
+pub(crate) async fn get_database_size(app: AppHandle) -> Result<u64, String> {
+    crate::background::run(move || {
+        let path = database_path(&app)?;
+        Ok([
+            path.clone(),
+            path.with_file_name("cpaste.db-wal"),
+            path.with_file_name("cpaste.db-shm"),
+        ]
+        .iter()
+        .filter_map(|file| std::fs::metadata(file).ok().map(|metadata| metadata.len()))
+        .sum())
+    })
+    .await
 }
 pub(crate) fn cleanup(s: &State) -> Result<(), String> {
     let p = prefs(s)?;

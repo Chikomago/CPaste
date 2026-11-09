@@ -258,10 +258,13 @@ pub(crate) fn set_picker_editing(app: AppHandle, editing: bool) -> Result<(), St
     Ok(())
 }
 #[tauri::command]
-pub(crate) fn get_preview_clip(
-    s: tauri::State<Arc<State>>,
+pub(crate) async fn get_preview_clip(
+    s: tauri::State<'_, Arc<State>>,
     id: i64,
 ) -> Result<Option<PreviewClip>, String> {
+    let state = s.inner().clone();
+    crate::background::run(move || {
+        let s = state;
     let mask = prefs(&s)?.sensitive_action == "mask";
     let result = db(&s)?
         .query_row(
@@ -308,6 +311,8 @@ pub(crate) fn get_preview_clip(
             .collect();
         clip
     }))
+
+    }).await
 }
 #[tauri::command]
 pub(crate) fn show_preview(

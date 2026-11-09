@@ -13,8 +13,15 @@ use tauri_plugin_autostart::ManagerExt as AutostartExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 #[tauri::command]
-pub(crate) fn get_preferences(s: tauri::State<Arc<State>>) -> Result<Preferences, String> {
-    prefs(&s)
+pub(crate) async fn get_preferences(
+    s: tauri::State<'_, Arc<State>>,
+) -> Result<Preferences, String> {
+    let state = s.inner().clone();
+    crate::background::run(move || {
+        let s = state;
+        prefs(&s)
+    })
+    .await
 }
 #[cfg(target_os = "macos")]
 pub(crate) fn apply_dock_visibility(visible: bool) -> Result<(), String> {
@@ -58,13 +65,18 @@ pub(crate) fn set_dock_visibility(app: &AppHandle, visible: bool) -> Result<(), 
 }
 
 #[tauri::command]
-pub(crate) fn save_preferences(
+pub(crate) async fn save_preferences(
     app: AppHandle,
-    s: tauri::State<Arc<State>>,
+    s: tauri::State<'_, Arc<State>>,
     preferences: Preferences,
 ) -> Result<(), String> {
-    validate_preferences(&preferences)?;
-    activate_preferences(&app, &s, preferences, true)
+    let state = s.inner().clone();
+    crate::background::write(move || {
+        let s = state;
+        validate_preferences(&preferences)?;
+        activate_preferences(&app, &s, preferences, true)
+    })
+    .await
 }
 pub(crate) fn validate_preferences(preferences: &Preferences) -> Result<(), String> {
     crate::segmentation::dictionary_words(&preferences.segment_custom_words)?;

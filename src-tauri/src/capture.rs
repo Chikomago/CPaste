@@ -16,6 +16,18 @@ pub(crate) struct Handler {
     pub(crate) state: Arc<State>,
     pub(crate) ctx: ClipboardContext,
 }
+
+fn read_image_png(ctx: &ClipboardContext) -> Option<Vec<u8>> {
+    #[cfg(target_os = "macos")]
+    if let Ok(bytes) = ctx.get_buffer("public.png") {
+        if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            return Some(bytes);
+        }
+    }
+    ctx.get_image()
+        .ok()
+        .and_then(|image| image.to_png().ok().map(|png| png.get_bytes().to_vec()))
+}
 #[cfg(target_os = "macos")]
 pub(crate) fn frontmost_source() -> Option<(String, String)> {
     use objc2_app_kit::NSWorkspace;
@@ -104,10 +116,7 @@ impl ClipboardHandler for Handler {
             String::new()
         };
         let image = if p.capture_image && files.is_empty() {
-            self.ctx
-                .get_image()
-                .ok()
-                .and_then(|v| v.to_png().ok().map(|v| v.get_bytes().to_vec()))
+            read_image_png(&self.ctx)
         } else {
             None
         };

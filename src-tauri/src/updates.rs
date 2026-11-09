@@ -118,11 +118,10 @@ pub(crate) async fn install_update(app: AppHandle) -> Result<(), String> {
         update
     };
     let progress_app = app.clone();
-    let finish_app = app.clone();
     let mut last_percent = None;
     let mut last_notice = std::time::Instant::now();
     let result = update
-        .download_and_install(
+        .download(
             move |chunk, total| {
                 let state = progress_app.state::<Updates>();
                 if let Ok(mut inner) = state.0.lock() {
@@ -140,15 +139,21 @@ pub(crate) async fn install_update(app: AppHandle) -> Result<(), String> {
                     }
                 };
             },
-            move || {
-                let state = finish_app.state::<Updates>();
-                if let Ok(mut inner) = state.0.lock() {
-                    inner.status.phase = "installing";
-                    publish(&finish_app, &inner.status);
-                };
-            },
+            || {},
         )
         .await;
+    let result = match result {
+        Ok(bytes) => {
+            {
+                let state = app.state::<Updates>();
+                let mut inner = state.0.lock().map_err(|e| e.to_string())?;
+                inner.status.phase = "installing";
+                publish(&app, &inner.status);
+            }
+            crate::background::run(move || update.install(bytes).map_err(|e| e.to_string())).await
+        }
+        Err(error) => Err(error.to_string()),
+    };
     let state = app.state::<Updates>();
     let mut inner = state.0.lock().map_err(|e| e.to_string())?;
     match result {
@@ -172,21 +177,24 @@ pub(crate) fn restart_after_update(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) fn open_project_link(kind: &str) -> Result<(), String> {
-    let url = match kind {
-        "project" => "https://github.com/Chikomago/CPaste",
-        "license" => "https://github.com/Chikomago/CPaste/blob/main/LICENSE",
-        _ => return Err("未知链接".into()),
-    };
-    #[cfg(target_os = "macos")]
-    let result = std::process::Command::new("open").arg(url).spawn();
-    #[cfg(target_os = "windows")]
-    let result = std::process::Command::new("rundll32")
-        .args(["url.dll,FileProtocolHandler", url])
-        .spawn();
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let result = std::process::Command::new("xdg-open").arg(url).spawn();
-    result.map(|_| ()).map_err(|e| e.to_string())
+pub(crate) async fn open_project_link(kind: String) -> Result<(), String> {
+    crate::background::run(move || {
+        let url = match kind.as_str() {
+            "project" => "https://github.com/Chikomago/CPaste",
+            "license" => "https://github.com/Chikomago/CPaste/blob/main/LICENSE",
+            _ => return Err("未知链接".into()),
+        };
+        #[cfg(target_os = "macos")]
+        let result = std::process::Command::new("open").arg(url).spawn();
+        #[cfg(target_os = "windows")]
+        let result = std::process::Command::new("rundll32")
+            .args(["url.dll,FileProtocolHandler", url])
+            .spawn();
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let result = std::process::Command::new("xdg-open").arg(url).spawn();
+        result.map(|_| ()).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 pub(crate) fn start(app: AppHandle) {

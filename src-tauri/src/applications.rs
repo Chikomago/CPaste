@@ -9,9 +9,15 @@ pub(crate) struct InstalledApp {
     pub(crate) path: String,
 }
 #[tauri::command]
-pub(crate) fn list_installed_apps(s: tauri::State<Arc<State>>) -> Vec<InstalledApp> {
+pub(crate) async fn list_installed_apps(
+    s: tauri::State<'_, Arc<State>>,
+) -> Result<Vec<InstalledApp>, String> {
+    let state = s.inner().clone();
+    crate::background::run(move || Ok(installed_apps(&state))).await
+}
+fn installed_apps(s: &State) -> Vec<InstalledApp> {
     let mut apps = Vec::new();
-    if let Ok(connection) = db(&s) {
+    if let Ok(connection) = db(s) {
         if let Ok(mut statement) = connection.prepare("SELECT DISTINCT source_app, source_path FROM clips WHERE source_app <> '' ORDER BY source_app") {
             if let Ok(rows) = statement.query_map([], |row| Ok(InstalledApp { name: row.get(0)?, path: row.get(1)? })) {
                 apps.extend(rows.flatten());

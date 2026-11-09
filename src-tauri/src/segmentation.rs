@@ -226,9 +226,9 @@ pub(crate) async fn segment_text(
     if text.len() > 1_000_000 {
         return Err("分词内容不能超过 1 MB".into());
     }
-    let preferences = prefs(&s)?;
     let state = s.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::background::run(move || {
+        let preferences = prefs(&state)?;
         let revision = if preferences.segment_custom_dictionary {
             stored_value(&*db(&state)?, REVISION_KEY)?
         } else {
@@ -249,27 +249,38 @@ pub(crate) async fn segment_text(
         )
     })
     .await
-    .map_err(err)?
 }
 
 #[tauri::command]
-pub(crate) fn get_dictionary_info(s: tauri::State<Arc<State>>) -> Result<DictionaryInfo, String> {
-    let raw = stored_value(&*db(&s)?, INFO_KEY)?;
-    if raw.is_empty() {
-        return Ok(DictionaryInfo::default());
-    }
-    serde_json::from_str(&raw).map_err(err)
-}
-
-#[tauri::command]
-pub(crate) fn get_downloaded_dictionary_info(
-    s: tauri::State<Arc<State>>,
+pub(crate) async fn get_dictionary_info(
+    s: tauri::State<'_, Arc<State>>,
 ) -> Result<DictionaryInfo, String> {
-    let raw = stored_value(&*db(&s)?, BASE_INFO_KEY)?;
-    if raw.is_empty() {
-        return Ok(DictionaryInfo::default());
-    }
-    serde_json::from_str(&raw).map_err(err)
+    let state = s.inner().clone();
+    crate::background::run(move || {
+        let s = state;
+        let raw = stored_value(&*db(&s)?, INFO_KEY)?;
+        if raw.is_empty() {
+            return Ok(DictionaryInfo::default());
+        }
+        serde_json::from_str(&raw).map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn get_downloaded_dictionary_info(
+    s: tauri::State<'_, Arc<State>>,
+) -> Result<DictionaryInfo, String> {
+    let state = s.inner().clone();
+    crate::background::run(move || {
+        let s = state;
+        let raw = stored_value(&*db(&s)?, BASE_INFO_KEY)?;
+        if raw.is_empty() {
+            return Ok(DictionaryInfo::default());
+        }
+        serde_json::from_str(&raw).map_err(err)
+    })
+    .await
 }
 
 #[derive(Clone, Serialize)]
@@ -340,7 +351,7 @@ pub(crate) async fn download_dictionary(
         }
     }
     let state = s.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::background::write(move || {
         validate_download(&bytes)?;
         let text = String::from_utf8(bytes).map_err(err)?;
         let info = DictionaryInfo {
@@ -367,7 +378,6 @@ pub(crate) async fn download_dictionary(
         Ok(info)
     })
     .await
-    .map_err(err)?
 }
 
 #[tauri::command]
@@ -375,14 +385,16 @@ pub(crate) async fn import_dictionary(
     app: AppHandle,
     s: tauri::State<'_, Arc<State>>,
 ) -> Result<Option<DictionaryInfo>, String> {
+    let Some(path) = rfd::AsyncFileDialog::new()
+        .add_filter("词典 / Dictionary", &["txt", "dict"])
+        .pick_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    let path = path.path().to_path_buf();
     let state = s.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let Some(path) = rfd::FileDialog::new()
-            .add_filter("词典 / Dictionary", &["txt", "dict"])
-            .pick_file()
-        else {
-            return Ok(None);
-        };
+    crate::background::write(move || {
         let file = std::fs::File::open(path).map_err(err)?;
         if file.metadata().map_err(err)?.len() > MAX_DICTIONARY_BYTES as u64 {
             return Err("词典不能超过 50 MB".into());
@@ -405,7 +417,6 @@ pub(crate) async fn import_dictionary(
         Ok(Some(info))
     })
     .await
-    .map_err(err)?
 }
 
 #[cfg(test)]

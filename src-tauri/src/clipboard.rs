@@ -14,53 +14,134 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
+use tokio::sync::Semaphore;
+
+static CLIPBOARD_OPERATIONS: Semaphore = Semaphore::const_new(1);
+
+async fn clipboard_task<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    let permit = CLIPBOARD_OPERATIONS.acquire().await.map_err(err)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        work()
+    })
+    .await
+    .map_err(err)?
+}
+
+#[cfg(test)]
+mod worker_tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn clipboard_operations_run_off_caller_thread_without_interleaving() {
+        let caller = thread::current().id();
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        tauri::async_runtime::block_on(async {
+            let mut jobs = Vec::new();
+            for _ in 0..4 {
+                let active = active.clone();
+                let peak = peak.clone();
+                jobs.push(tauri::async_runtime::spawn(async move {
+                    clipboard_task(move || {
+                        assert_ne!(thread::current().id(), caller);
+                        let count = active.fetch_add(1, Ordering::SeqCst) + 1;
+                        peak.fetch_max(count, Ordering::SeqCst);
+                        thread::sleep(Duration::from_millis(10));
+                        active.fetch_sub(1, Ordering::SeqCst);
+                        Ok(())
+                    })
+                    .await
+                }));
+            }
+            for job in jobs {
+                job.await.unwrap().unwrap();
+            }
+        });
+        assert_eq!(
+            peak.load(Ordering::SeqCst),
+            1,
+            "Clipboard writes and paste keystrokes must not overlap"
+        );
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+    }
+}
 
 #[tauri::command]
-pub(crate) fn toggle_pin(
+pub(crate) async fn toggle_pin(
     app: AppHandle,
-    s: tauri::State<Arc<State>>,
+    s: tauri::State<'_, Arc<State>>,
     id: i64,
 ) -> Result<(), String> {
-    db(&s)?
-        .execute("UPDATE clips SET pinned=1-pinned WHERE id=?1", [id])
-        .map_err(err)?;
-    app.emit("clips-changed", ()).map_err(err)
+    let state = s.inner().clone();
+    crate::background::write(move || {
+        let s = state;
+        db(&s)?
+            .execute("UPDATE clips SET pinned=1-pinned WHERE id=?1", [id])
+            .map_err(err)?;
+        app.emit("clips-changed", ()).map_err(err)
+    })
+    .await
 }
 #[tauri::command]
-pub(crate) fn toggle_favorite(
+pub(crate) async fn toggle_favorite(
     app: AppHandle,
-    s: tauri::State<Arc<State>>,
+    s: tauri::State<'_, Arc<State>>,
     id: i64,
 ) -> Result<(), String> {
-    db(&s)?
-        .execute("UPDATE clips SET favorite=1-favorite WHERE id=?1", [id])
-        .map_err(err)?;
-    app.emit("clips-changed", ()).map_err(err)
+    let state = s.inner().clone();
+    crate::background::write(move || {
+        let s = state;
+        db(&s)?
+            .execute("UPDATE clips SET favorite=1-favorite WHERE id=?1", [id])
+            .map_err(err)?;
+        app.emit("clips-changed", ()).map_err(err)
+    })
+    .await
 }
 #[tauri::command]
-pub(crate) fn delete_clip(
+pub(crate) async fn delete_clip(
     app: AppHandle,
-    s: tauri::State<Arc<State>>,
+    s: tauri::State<'_, Arc<State>>,
     id: i64,
 ) -> Result<(), String> {
-    db(&s)?
-        .execute("DELETE FROM clips WHERE id=?1", [id])
-        .map_err(err)?;
-    app.emit("clips-changed", serde_json::json!({ "deleted_id": id }))
-        .map_err(err)
+    let state = s.inner().clone();
+    crate::background::write(move || {
+        let s = state;
+        db(&s)?
+            .execute("DELETE FROM clips WHERE id=?1", [id])
+            .map_err(err)?;
+        app.emit("clips-changed", serde_json::json!({ "deleted_id": id }))
+            .map_err(err)
+    })
+    .await
 }
 #[tauri::command]
-pub(crate) fn clear_clips(app: AppHandle, s: tauri::State<Arc<State>>) -> Result<(), String> {
-    db(&s)?.execute("DELETE FROM clips", []).map_err(err)?;
-    app.emit("clips-changed", ()).map_err(err)
-}
-#[tauri::command]
-pub(crate) fn edit_clip(
+pub(crate) async fn clear_clips(
     app: AppHandle,
-    s: tauri::State<Arc<State>>,
+    s: tauri::State<'_, Arc<State>>,
+) -> Result<(), String> {
+    let state = s.inner().clone();
+    crate::background::write(move || {
+        let s = state;
+        db(&s)?.execute("DELETE FROM clips", []).map_err(err)?;
+        app.emit("clips-changed", ()).map_err(err)
+    })
+    .await
+}
+#[tauri::command]
+pub(crate) async fn edit_clip(
+    app: AppHandle,
+    s: tauri::State<'_, Arc<State>>,
     id: i64,
     content: String,
 ) -> Result<(), String> {
+    let state = s.inner().clone();
+    crate::background::write(move || {
+        let s = state;
     if content.trim().is_empty() {
         return Err("内容不能为空".into());
     }
@@ -104,12 +185,25 @@ pub(crate) fn edit_clip(
     c.execute("UPDATE clips SET kind='text',title=?1,plain_text=?2,html=NULL,rtf=NULL,fingerprint=?3,updated_at=?4 WHERE id=?5", params![title(&content, "纯文本"), content, fingerprint, now(), id]).map_err(err)?;
     drop(c);
     app.emit("clips-changed", ()).map_err(err)
+
+    }).await
 }
 pub(crate) fn mark_clip_used(app: &AppHandle, s: &State, id: i64) -> Result<(), String> {
     db(s)?
         .execute("UPDATE clips SET use_count=use_count+1 WHERE id=?1", [id])
         .map_err(err)?;
     app.emit("clips-changed", ()).map_err(err)
+}
+pub(crate) fn clipboard_image_content(bytes: Vec<u8>) -> Result<ClipboardContent, String> {
+    // Captured images are stored as PNG. The macOS pasteboard accepts those
+    // exact bytes, so pasting must not decode and re-encode the full image.
+    #[cfg(target_os = "macos")]
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Ok(ClipboardContent::Other("public.png".into(), bytes));
+    }
+    RustImageData::from_bytes(&bytes)
+        .map(ClipboardContent::Image)
+        .map_err(err)
 }
 pub(crate) fn restore(s: &State, id: i64) -> Result<(), String> {
     let (kind, text, html, rtf, files, image): (
@@ -138,23 +232,28 @@ pub(crate) fn restore(s: &State, id: i64) -> Result<(), String> {
         .optional()
         .map_err(err)?
         .ok_or("记录已不存在")?;
+    let image = if kind == "image" {
+        Some(clipboard_image_content(image.ok_or("图片数据不存在")?)?)
+    } else {
+        None
+    };
     let ctx = ClipboardContext::new().map_err(err)?;
     s.suppress_next.store(true, Ordering::SeqCst);
-    let result = match kind.as_str() {
-        "files" => ctx.set_files(files),
-        "image" => {
-            let image = RustImageData::from_bytes(&image.ok_or("图片数据不存在")?).map_err(err)?;
-            ctx.set_image(image)
-        }
-        _ => {
-            let mut formats = vec![ClipboardContent::Text(text)];
-            if let Some(v) = html {
-                formats.push(ClipboardContent::Html(v))
+    let result = if let Some(image) = image {
+        ctx.set(vec![image])
+    } else {
+        match kind.as_str() {
+            "files" => ctx.set_files(files),
+            _ => {
+                let mut formats = vec![ClipboardContent::Text(text)];
+                if let Some(v) = html {
+                    formats.push(ClipboardContent::Html(v))
+                }
+                if let Some(v) = rtf {
+                    formats.push(ClipboardContent::Rtf(v))
+                }
+                ctx.set(formats)
             }
-            if let Some(v) = rtf {
-                formats.push(ClipboardContent::Rtf(v))
-            }
-            ctx.set(formats)
         }
     };
     if result.is_err() {
@@ -194,48 +293,51 @@ fn write_plain_text(s: &State, plain: &str) -> Result<(), String> {
     result.map_err(err)
 }
 #[tauri::command]
-pub(crate) fn copy_clip(
+pub(crate) async fn copy_clip(
     app: AppHandle,
-    s: tauri::State<Arc<State>>,
+    s: tauri::State<'_, Arc<State>>,
     id: i64,
 ) -> Result<(), String> {
-    let kind: String = db(&s)?
+    let state = s.inner().clone();
+    clipboard_task(move || copy_with_mode(app, &state, id, None)).await
+}
+fn copy_with_mode(
+    app: AppHandle,
+    s: &State,
+    id: i64,
+    override_plain: Option<bool>,
+) -> Result<(), String> {
+    let kind: String = db(s)?
         .query_row("SELECT kind FROM clips WHERE id=?1", [id], |row| row.get(0))
         .map_err(err)?;
-    let p = prefs(&s)?;
-    let result = if should_copy_plain(&kind, &p, None) {
-        restore_plain(&s, id)
+    let p = prefs(s)?;
+    let result = if should_copy_plain(&kind, &p, override_plain) {
+        restore_plain(s, id)
     } else {
-        restore(&s, id)
+        restore(s, id)
     };
     if result.is_ok() {
-        let _ = mark_clip_used(&app, &s, id);
+        let _ = mark_clip_used(&app, s, id);
     }
     result
 }
 #[tauri::command]
-pub(crate) fn copy_plain_clip(
+pub(crate) async fn copy_plain_clip(
     app: AppHandle,
-    s: tauri::State<Arc<State>>,
+    s: tauri::State<'_, Arc<State>>,
     id: i64,
 ) -> Result<(), String> {
-    let result = restore_plain(&s, id);
-    if result.is_ok() {
-        let _ = mark_clip_used(&app, &s, id);
-    }
-    result
+    let state = s.inner().clone();
+    clipboard_task(move || copy_with_mode(app, &state, id, Some(true))).await
 }
 #[tauri::command]
-pub(crate) fn copy_original_clip(
+pub(crate) async fn copy_original_clip(
     app: AppHandle,
-    s: tauri::State<Arc<State>>,
+    s: tauri::State<'_, Arc<State>>,
     id: i64,
 ) -> Result<(), String> {
-    let result = restore(&s, id);
-    if result.is_ok() {
-        let _ = mark_clip_used(&app, &s, id);
-    }
-    result
+    let state = s.inner().clone();
+    clipboard_task(move || copy_with_mode(app, &state, id, Some(false))).await
 }
 pub(crate) fn should_copy_plain(kind: &str, p: &Preferences, override_plain: Option<bool>) -> bool {
     override_plain.unwrap_or(match kind {
@@ -305,42 +407,49 @@ mod fragment_tests {
     }
 }
 #[tauri::command]
-pub(crate) fn paste_text_fragment(
+pub(crate) async fn paste_text_fragment(
     app: AppHandle,
-    s: tauri::State<Arc<State>>,
+    s: tauri::State<'_, Arc<State>>,
     id: i64,
     text: String,
     edge: String,
 ) -> Result<String, String> {
-    validate_fragment(&s, id, &text)?;
-    paste_with_mode(app, &s, id, Some(true), &edge, Some(&text))
+    let state = s.inner().clone();
+    clipboard_task(move || {
+        validate_fragment(&state, id, &text)?;
+        paste_with_mode(app, &state, id, Some(true), &edge, Some(&text))
+    })
+    .await
 }
 #[tauri::command]
-pub(crate) fn paste_clip(
+pub(crate) async fn paste_clip(
     app: AppHandle,
-    s: tauri::State<Arc<State>>,
+    s: tauri::State<'_, Arc<State>>,
     id: i64,
     edge: String,
 ) -> Result<String, String> {
-    paste_with_mode(app, &s, id, None, &edge, None)
+    let state = s.inner().clone();
+    clipboard_task(move || paste_with_mode(app, &state, id, None, &edge, None)).await
 }
 #[tauri::command]
-pub(crate) fn paste_plain_clip(
+pub(crate) async fn paste_plain_clip(
     app: AppHandle,
-    s: tauri::State<Arc<State>>,
+    s: tauri::State<'_, Arc<State>>,
     id: i64,
     edge: String,
 ) -> Result<String, String> {
-    paste_with_mode(app, &s, id, Some(true), &edge, None)
+    let state = s.inner().clone();
+    clipboard_task(move || paste_with_mode(app, &state, id, Some(true), &edge, None)).await
 }
 #[tauri::command]
-pub(crate) fn paste_original_clip(
+pub(crate) async fn paste_original_clip(
     app: AppHandle,
-    s: tauri::State<Arc<State>>,
+    s: tauri::State<'_, Arc<State>>,
     id: i64,
     edge: String,
 ) -> Result<String, String> {
-    paste_with_mode(app, &s, id, Some(false), &edge, None)
+    let state = s.inner().clone();
+    clipboard_task(move || paste_with_mode(app, &state, id, Some(false), &edge, None)).await
 }
 pub(crate) fn should_paste_plain(
     kind: &str,
@@ -361,6 +470,7 @@ pub(crate) fn paste_with_mode(
     edge: &str,
     fragment: Option<&str>,
 ) -> Result<String, String> {
+    let target = s.target_pid.load(Ordering::SeqCst);
     let kind: String = db(s)?
         .query_row("SELECT kind FROM clips WHERE id=?1", [id], |row| row.get(0))
         .map_err(err)?;
@@ -374,7 +484,6 @@ pub(crate) fn paste_with_mode(
         restore(s, id)?;
     }
     let _ = mark_clip_used(&app, s, id);
-    let target = s.target_pid.load(Ordering::SeqCst);
     if target == 0 {
         return Ok("copied".into());
     }

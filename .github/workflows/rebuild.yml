@@ -98,9 +98,10 @@ jobs:
           merge-multiple: true
       - name: Back up existing assets and release metadata
         run: |
+          source scripts/release-retry.sh
           mkdir release-backup
-          gh release view "$RELEASE_TAG" --json body,name,isDraft > release-backup/metadata.json
-          gh release download "$RELEASE_TAG" --dir release-backup
+          retry gh release view "$RELEASE_TAG" --json body,name,isDraft > release-backup/metadata.json
+          retry gh release download "$RELEASE_TAG" --dir release-backup --clobber
       - uses: actions/upload-artifact@v4
         with:
           name: previous-release-backup
@@ -108,17 +109,20 @@ jobs:
           retention-days: 30
       - name: Replace bundles and update manifest
         run: |
+          source scripts/release-retry.sh
           test "$(find release-assets -type f | wc -l)" -eq 8
           git archive --format=zip --prefix=CPaste/ -o "release-assets/CPaste_${RELEASE_TAG#v}_source.zip" "$SOURCE_SHA"
           cp docs/release-notes.md rebuilt-notes.md
-          printf '\n本次同版本重建包含设置布局调整和历史总条数显示。已安装 0.1.1 的用户需要手动下载安装。\n\n构建源码：https://github.com/%s/commit/%s\n源码压缩包：CPaste_%s_source.zip\n' "$GITHUB_REPOSITORY" "$SOURCE_SHA" "${RELEASE_TAG#v}" >> rebuilt-notes.md
-          gh release edit "$RELEASE_TAG" --draft=true
+          printf '\n本次为同版本重新构建，已安装相同版本的用户需要手动下载安装。\n\n构建源码：https://github.com/%s/commit/%s\n源码压缩包：CPaste_%s_source.zip\n' "$GITHUB_REPOSITORY" "$SOURCE_SHA" "${RELEASE_TAG#v}" >> rebuilt-notes.md
+          retry gh release edit "$RELEASE_TAG" --draft=true
           touch release-hidden
-          gh release upload "$RELEASE_TAG" release-assets/* --clobber
-          gh release edit "$RELEASE_TAG" --notes-file rebuilt-notes.md
-          python3 scripts/publish-update-manifest.py "$RELEASE_TAG"
-          gh release upload "$RELEASE_TAG" latest.json --clobber
-          gh release edit "$RELEASE_TAG" --draft=false --latest
+          for asset in release-assets/*; do
+            retry gh release upload "$RELEASE_TAG" "$asset" --clobber
+          done
+          retry gh release edit "$RELEASE_TAG" --notes-file rebuilt-notes.md
+          retry python3 scripts/publish-update-manifest.py "$RELEASE_TAG"
+          retry gh release upload "$RELEASE_TAG" latest.json --clobber
+          retry gh release edit "$RELEASE_TAG" --draft=false --latest
           rm release-hidden
       - name: Restore previous release if replacement fails
         if: failure()
@@ -130,8 +134,9 @@ jobs:
           backup = pathlib.Path('release-backup')
           metadata = json.loads((backup / 'metadata.json').read_text())
           files = [str(p) for p in backup.iterdir() if p.name != 'metadata.json']
-          subprocess.run(['gh', 'release', 'upload', tag, *files, '--clobber'], check=True)
+          for path in files:
+              subprocess.run(['bash', 'scripts/release-retry.sh', 'gh', 'release', 'upload', tag, path, '--clobber'], check=True)
           pathlib.Path('previous-notes.md').write_text(metadata['body'])
-          subprocess.run(['gh', 'release', 'edit', tag, '--notes-file', 'previous-notes.md', '--draft=false', '--latest'], check=True)
+          subprocess.run(['bash', 'scripts/release-retry.sh', 'gh', 'release', 'edit', tag, '--notes-file', 'previous-notes.md', '--draft=false', '--latest'], check=True)
           PY
           fi

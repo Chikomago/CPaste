@@ -49,16 +49,21 @@ pub(crate) fn full_disk_access_granted(app: &AppHandle) -> Option<bool> {
     })
 }
 #[tauri::command]
-pub(crate) fn full_disk_access_status(app: AppHandle) -> Option<bool> {
-    #[cfg(target_os = "macos")]
-    {
-        full_disk_access_granted(&app)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = app;
-        Some(true)
-    }
+pub(crate) async fn full_disk_access_status(app: AppHandle) -> Result<Option<bool>, String> {
+    crate::background::run(move || {
+        Ok({
+            #[cfg(target_os = "macos")]
+            {
+                full_disk_access_granted(&app)
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = app;
+                Some(true)
+            }
+        })
+    })
+    .await
 }
 #[tauri::command]
 pub(crate) fn accessibility_status() -> bool {

@@ -12,6 +12,183 @@ use rusqlite::backup::Backup;
 use rusqlite::Connection;
 
 #[test]
+fn record_query_does_not_block_ipc_when_database_is_busy() {
+    let c = Connection::open_in_memory().unwrap();
+    c.execute_batch("CREATE TABLE clips(id INTEGER PRIMARY KEY,kind TEXT,title TEXT,plain_text TEXT,html TEXT,rtf TEXT,files_json TEXT,source_app TEXT,source_path TEXT,created_at INTEGER,pinned INTEGER,favorite INTEGER,updated_at INTEGER,use_count INTEGER); CREATE TABLE app_settings(key TEXT PRIMARY KEY,value TEXT);").unwrap();
+    let state = Arc::new(State {
+        db: Mutex::new(c),
+        prefs: Mutex::new(Preferences::default()),
+        suppress_next: AtomicBool::new(false),
+        listening: AtomicBool::new(true),
+        picker_pinned: AtomicBool::new(false),
+        target_pid: AtomicU64::new(0),
+        #[cfg(target_os = "windows")]
+        target_hwnd: AtomicU64::new(0),
+    });
+    let app = tauri::test::mock_builder()
+        .manage(state.clone())
+        .invoke_handler(tauri::generate_handler![
+            crate::clips::list_clips,
+            crate::windows::get_preview_clip,
+            crate::preferences::get_preferences,
+            crate::segmentation::get_dictionary_info,
+            crate::segmentation::get_downloaded_dictionary_info
+        ])
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    for command in [
+        "list_clips",
+        "get_preview_clip",
+        "get_preferences",
+        "get_dictionary_info",
+        "get_downloaded_dictionary_info",
+    ] {
+        let (locked_tx, locked_rx) = std::sync::mpsc::sync_channel(1);
+        let locked_state = state.clone();
+        let holder = std::thread::spawn(move || {
+            if command == "get_preferences" {
+                let _lock = locked_state.prefs.lock().unwrap();
+                locked_tx.send(()).unwrap();
+                std::thread::sleep(Duration::from_millis(250));
+            } else {
+                let _lock = locked_state.db.lock().unwrap();
+                locked_tx.send(()).unwrap();
+                std::thread::sleep(Duration::from_millis(250));
+            }
+        });
+        locked_rx.recv().unwrap();
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let start = std::time::Instant::now();
+        window.as_ref().clone().on_message(
+            tauri::webview::InvokeRequest {
+                cmd: command.into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: if cfg!(target_os = "windows") {
+                    "http://tauri.localhost"
+                } else {
+                    "tauri://localhost"
+                }
+                .parse()
+                .unwrap(),
+                body: tauri::ipc::InvokeBody::Json(serde_json::json!({"id":1})),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.into(),
+            },
+            Box::new(move |_, _, response, _, _| {
+                let _ = tx.send(response);
+            }),
+        );
+        let dispatch = start.elapsed();
+        let response = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        holder.join().unwrap();
+        if let tauri::ipc::InvokeResponse::Err(error) = response {
+            panic!("{command} failed: {:?}", error.0);
+        }
+        eprintln!("{command} IPC dispatch with busy state: {dispatch:?}");
+        assert!(
+            dispatch < Duration::from_millis(100),
+            "{command}: state lock blocked the UI thread for {dispatch:?}"
+        );
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn preparing_stored_png_for_paste_does_not_decode_pixels() {
+    let image = image::DynamicImage::new_rgb8(4000, 3000);
+    let mut png = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let png = png.into_inner();
+    let original = png.clone();
+    let start = std::time::Instant::now();
+    let content = crate::clipboard::clipboard_image_content(png).unwrap();
+    let elapsed = start.elapsed();
+    eprintln!("prepare PNG paste: {elapsed:?}");
+    assert!(
+        elapsed < Duration::from_millis(100),
+        "Preparing an already-encoded PNG decoded the full image: {elapsed:?}"
+    );
+    match content {
+        clipboard_rs::ClipboardContent::Other(format, bytes) => {
+            assert_eq!(format, "public.png");
+            assert_eq!(bytes, original);
+        }
+        _ => panic!("The original PNG should remain encoded for the native pasteboard"),
+    }
+}
+
+#[test]
+fn large_image_thumbnail_does_not_block_ipc_dispatch() {
+    use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponse};
+    let image = image::DynamicImage::new_rgb8(2000, 1500);
+    let mut png = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let c = Connection::open_in_memory().unwrap();
+    c.execute_batch("CREATE TABLE clips(id INTEGER PRIMARY KEY,image_data BLOB,plain_text TEXT,html TEXT,rtf TEXT,files_json TEXT);").unwrap();
+    c.execute(
+        "INSERT INTO clips VALUES(1,?1,'',NULL,NULL,'[]')",
+        [png.into_inner()],
+    )
+    .unwrap();
+    let state = Arc::new(State {
+        db: Mutex::new(c),
+        prefs: Mutex::new(Preferences::default()),
+        suppress_next: AtomicBool::new(false),
+        listening: AtomicBool::new(true),
+        picker_pinned: AtomicBool::new(false),
+        target_pid: AtomicU64::new(0),
+        #[cfg(target_os = "windows")]
+        target_hwnd: AtomicU64::new(0),
+    });
+    let app = tauri::test::mock_builder()
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![crate::clips::get_clip_thumbnail])
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let start = std::time::Instant::now();
+    window.as_ref().clone().on_message(
+        tauri::webview::InvokeRequest {
+            cmd: "get_clip_thumbnail".into(),
+            callback: CallbackFn(0),
+            error: CallbackFn(1),
+            url: if cfg!(target_os = "windows") {
+                "http://tauri.localhost"
+            } else {
+                "tauri://localhost"
+            }
+            .parse()
+            .unwrap(),
+            body: InvokeBody::Json(serde_json::json!({"id":1})),
+            headers: Default::default(),
+            invoke_key: tauri::test::INVOKE_KEY.into(),
+        },
+        Box::new(move |_, _, response, _, _| {
+            let _ = tx.send(response);
+        }),
+    );
+    let dispatch = start.elapsed();
+    let response = rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("Thumbnail command did not complete");
+    if let InvokeResponse::Err(error) = response {
+        panic!("Thumbnail command failed: {:?}", error.0);
+    }
+    eprintln!("thumbnail IPC dispatch: {dispatch:?}");
+    assert!(
+        dispatch < Duration::from_millis(100),
+        "Image work blocked the UI/IPC thread for {dispatch:?}"
+    );
+}
+
+#[test]
 fn legacy_clips_get_sort_fields_without_losing_creation_time() {
     let c = Connection::open_in_memory().unwrap();
     c.execute_batch("CREATE TABLE clips(id INTEGER PRIMARY KEY, created_at INTEGER NOT NULL); INSERT INTO clips(id,created_at) VALUES(1,12345);").unwrap();
