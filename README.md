@@ -19,14 +19,11 @@
 
 
 ## 开发
-```功能功能功能
-
 
 分词引擎使用 [jieba-rs](https://github.com/messense/jieba-rs)。
 
 需要 Node.js 20+、pnpm、Rust 1.90+，以及 [Tauri 对应平台的构建依赖](https://v2.tauri.app/start/prerequisites/)。
-
-```sh
+```
 pnpm install
 pnpm tauri dev
 ```
