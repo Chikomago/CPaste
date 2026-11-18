@@ -7,7 +7,8 @@ import { MediaCache } from '../src/lib/media-cache';
 import type { Clip, TriggerEdge } from '../src/types';
 
 const window = new Window();
-Object.assign(globalThis, { window, document: window.document, navigator: window.navigator, HTMLElement: window.HTMLElement,
+Object.defineProperty(globalThis,'navigator',{value:window.navigator,configurable:true});
+Object.assign(globalThis, { window, document: window.document,  HTMLElement: window.HTMLElement,
   HTMLInputElement:window.HTMLInputElement,HTMLTextAreaElement:window.HTMLTextAreaElement,HTMLSelectElement:window.HTMLSelectElement,
   Element: window.Element, Node: window.Node, getComputedStyle: window.getComputedStyle.bind(window),
   requestAnimationFrame: window.requestAnimationFrame.bind(window), cancelAnimationFrame: window.cancelAnimationFrame.bind(window),

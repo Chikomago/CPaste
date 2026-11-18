@@ -11,6 +11,4 @@
 
 下载：macOS 按芯片选择 aarch64（Apple Silicon）或 x64（Intel）安装包；Windows 选择 x64 `.exe`。
 
-升级时会自动迁移图片资源，并保留迁移前备份。macOS 安装包采用临时签名，未经过 Apple 公证；Windows 安装包尚未使用商业代码签名证书。
-
-作者：chikomago · 协议：GPL-3.0-only
+升级时会自动迁移图片资源，并保留迁移前备份。macOS 安装包采用临时签名，未经过 Apple 公证，安装时会遇到信任问题；Windows 安装包尚未使用商业代码签名证书。

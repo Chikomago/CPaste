@@ -1,6 +1,6 @@
 # 图片资源存储
 
-设计参考 EcoPaste：原图、缩略图和应用图标独立落盘，数据库只存引用和元信息。现有开发版、正式版仍共用 `app.cpaste.desktop` 数据目录。
+原图、缩略图和应用图标独立落盘，数据库只存引用和元信息。现有开发版、正式版仍共用 `app.cpaste.desktop` 数据目录。
 
 ```text
 app.cpaste.desktop/
