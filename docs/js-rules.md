@@ -57,7 +57,3 @@ function transform(pixels) {
 | 文本返回值 | 非空；text ≤1 MB，html／rtf 各 ≤4 MB |
 
 规则存于 `app_settings.js_rules`，随备份恢复。生成默认源码：`pnpm generate:js-rules`；验证：`pnpm test:js-rules`。
-
-## 管理与备份
-
-「设置 → 规则」的总开关默认开启；关闭后隐藏面板规则入口并停用规则快捷键，保留已配置的规则。备份导出全部规则及各自的启用状态为 JSON。恢复前校验文件，确认后覆盖现有规则，不改剪贴板记录，也不执行导入的规则。

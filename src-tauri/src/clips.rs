@@ -1,6 +1,8 @@
 use crate::models::{Clip, State};
 use crate::privacy::{contains_sensitive, mask_sensitive};
 use crate::state::{db, err, prefs};
+#[cfg(target_os = "windows")]
+use base64::Engine;
 use rusqlite::OptionalExtension;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
