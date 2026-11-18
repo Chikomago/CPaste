@@ -8,6 +8,77 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
+pub(crate) fn export_snapshot(source: &Connection, path: &std::path::Path) -> Result<(), String> {
+    let mut destination = Connection::open(path).map_err(err)?;
+    Backup::new(source, &mut destination)
+        .map_err(err)?
+        .run_to_completion(100, Duration::from_millis(10), None)
+        .map_err(err)?;
+    crate::resources::migrate_schema(&destination)?;
+    let rows = {
+        let mut q = destination
+            .prepare("SELECT id,image_key FROM clips WHERE image_key IS NOT NULL")
+            .map_err(err)?;
+        let rows = q
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+            .map_err(err)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(err)?;
+        rows
+    };
+    let transaction = destination.transaction().map_err(err)?;
+    for (id, key) in rows {
+        let bytes = crate::resources::read(source, &key)?;
+        transaction
+            .execute(
+                "UPDATE clips SET image_data=?1,image_key=NULL WHERE id=?2",
+                rusqlite::params![bytes, id],
+            )
+            .map_err(err)?;
+    }
+    transaction.execute_batch("DROP TRIGGER IF EXISTS delete_clip_thumbnail;DROP TRIGGER IF EXISTS invalidate_clip_thumbnail;DROP TABLE IF EXISTS clip_thumbnails;DELETE FROM app_icons;").map_err(err)?;
+    transaction.commit().map_err(err)?;
+    destination
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);PRAGMA journal_mode=DELETE;VACUUM;")
+        .map_err(err)?;
+    Ok(())
+}
+pub(crate) fn restore_snapshot(
+    destination: &mut Connection,
+    source: &Connection,
+) -> Result<(), String> {
+    let root = crate::resources::root(destination)?;
+    let parent = root.parent().ok_or("数据目录不可用")?;
+    std::fs::create_dir_all(parent).map_err(err)?;
+    let temporary = parent.join(format!(
+        ".restore-{}-{}.db",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
+    let result = (|| {
+        let mut staged = Connection::open(&temporary).map_err(err)?;
+        Backup::new(source, &mut staged)
+            .map_err(err)?
+            .run_to_completion(100, Duration::from_millis(10), None)
+            .map_err(err)?;
+        migrate_clip_sort_fields(&staged)?;
+        crate::resources::migrate_images(&mut staged, false)?;
+        Backup::new(&staged, destination)
+            .map_err(err)?
+            .run_to_completion(100, Duration::from_millis(10), None)
+            .map_err(err)?;
+        Ok(())
+    })();
+    for path in [
+        temporary.clone(),
+        temporary.with_extension("db-wal"),
+        temporary.with_extension("db-shm"),
+    ] {
+        let _ = std::fs::remove_file(path);
+    }
+    let _ = crate::resources::collect_unused(destination);
+    result
+}
 #[tauri::command]
 pub(crate) async fn backup_database(
     s: tauri::State<'_, Arc<State>>,
@@ -31,14 +102,9 @@ pub(crate) async fn backup_database(
         let temporary = path.with_file_name(format!("{}.tmp", name));
         let _ = std::fs::remove_file(&temporary);
         let result = (|| -> Result<(), String> {
-            let mut destination = Connection::open(&temporary).map_err(err)?;
             let source = db(&s)?;
-            Backup::new(&source, &mut destination)
-                .map_err(err)?
-                .run_to_completion(100, Duration::from_millis(10), None)
-                .map_err(err)?;
+            export_snapshot(&source, &temporary)?;
             drop(source);
-            drop(destination);
             if path.exists() {
                 std::fs::remove_file(&path).map_err(err)?;
             }
@@ -68,8 +134,14 @@ pub(crate) async fn restore_database(
     let state = s.inner().clone();
     crate::background::write(move || {
         let s = state;
-        let source = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        let mut uri = tauri::Url::from_file_path(std::path::Path::new(&path))
             .map_err(|_| "无法打开备份文件".to_string())?;
+        uri.query_pairs_mut().append_pair("immutable", "1");
+        let source = Connection::open_with_flags(
+            uri.as_str(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+        )
+        .map_err(|_| "无法打开备份文件".to_string())?;
         let check: String = source
             .query_row("PRAGMA quick_check(1)", [], |row| row.get(0))
             .map_err(err)?;
@@ -94,15 +166,14 @@ pub(crate) async fn restore_database(
             .map_err(|_| "备份记录无法读取".to_string())?;
         {
             let mut destination = db(&s)?;
-            Backup::new(&source, &mut destination)
-                .map_err(err)?
-                .run_to_completion(100, Duration::from_millis(10), None)
-                .map_err(err)?;
-            migrate_clip_sort_fields(&destination)?;
+            restore_snapshot(&mut destination, &source)?;
         }
         activate_preferences(&app, &s, restored, false)?;
         app.emit("dictionary-changed", ()).map_err(err)?;
-        app.emit("clips-changed", ()).map_err(err)
+        app.emit("rules-changed", serde_json::json!({"reset":true}))
+            .map_err(err)?;
+        app.emit("clips-changed", serde_json::json!({"reset":true}))
+            .map_err(err)
     })
     .await
 }

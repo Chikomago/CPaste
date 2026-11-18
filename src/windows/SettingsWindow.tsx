@@ -1,3 +1,4 @@
+import { RuleManager } from '../components/RuleManager';
 import { AboutSettings } from '../components/AboutSettings';
 import { DictionaryEditor } from '../components/DictionaryEditor';
 import { DictionaryDownload } from '../components/DictionaryDownload';
@@ -5,29 +6,32 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import React from 'react';
 import { useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { Info, AppWindow, Clipboard, Database, Download, Keyboard, List, Palette, Power, Search, Shield, Upload, WholeWord, X } from 'lucide-react';
+import { Info, AppWindow, Clipboard, Database, Archive, Download, Keyboard, KeyRound, List, Palette, Power, Search, Shield, Upload, WholeWord, Workflow, X } from 'lucide-react';
 import { ActionShortcut, Preferences, InstalledApp } from '../types';
 import { actionShortcutLabels, defaults } from '../preferences';
 import { normalizeShortcut, displayShortcut, shortcutFromKey } from '../lib/shortcuts';
 import { formatBytes } from '../lib/clips';
-import { applyTheme } from '../lib/theme';
+import { animateSurface, applyTheme } from '../lib/theme';
 import { call } from '../lib/api';
-import { InstalledAppIcon } from '../components/ClipMedia';
+import { InstalledAppIcon, resetAppIconCache } from '../components/ClipMedia';
+import { StorageUsage } from '../components/StorageUsage';
 import { Setting, SettingsSelect, SettingsNumber, Toggle } from '../components/SettingsControls';
 import { isEnglish, setLanguage, tr, trNotice } from '../i18n';
 
-export type Category = 'appearance' | 'shortcut' | 'behavior' | 'capture' | 'segmentation' | 'cleanup' | 'privacy' | 'permissions' | 'startup' | 'backup' | 'about';
+export type Category = 'appearance' | 'shortcut' | 'behavior' | 'capture' | 'segmentation' | 'rules' | 'cleanup' | 'privacy' | 'permissions' | 'startup' | 'backup' | 'developer' | 'about';
 export const categories: { id: Category; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
   { id: 'appearance', label: '界面', icon: Palette },
   { id: 'shortcut', label: '快捷键', icon: Keyboard },
   { id: 'behavior', label: '行为', icon: Clipboard },
   { id: 'segmentation', label: '分词', icon: WholeWord },
+  { id: 'rules', label: '快捷处理规则', icon: Workflow },
   { id: 'capture', label: '采集类型', icon: List },
   { id: 'cleanup', label: '存储', icon: Database },
   { id: 'privacy', label: '隐私', icon: Shield },
-  { id: 'permissions', label: '系统权限', icon: Shield },
+  { id: 'permissions', label: '系统权限', icon: KeyRound },
   { id: 'startup', label: '启动与显示', icon: Power },
-  { id: 'backup', label: '备份', icon: Database },
+  { id: 'backup', label: '备份', icon: Archive },
+  { id: 'developer', label: '诊断', icon: Workflow },
   { id: 'about', label: '关于', icon: Info },
 ];
 export function SettingsWindow() {
@@ -45,10 +49,10 @@ export function SettingsWindow() {
   const [accessibilityGranted, setAccessibilityGranted] = useState(false);
   const [fullDiskGranted, setFullDiskGranted] = useState<boolean | null>(null);
   useEffect(() => {
-    void call<Preferences>('get_preferences').then(p => { setPrefs(p); setLanguage(p.language); applyTheme(p.theme, p.accent_color); }).catch(e => setNotice(`设置读取失败：${String(e)}`));
+    void call<Preferences>('get_preferences').then(p => { setPrefs(p); setLanguage(p.language); applyTheme(p.theme, p.accent_color, p.disable_animations); }).catch(e => setNotice(`设置读取失败：${String(e)}`));
     const refreshSize = () => { void call<number>('get_database_size').then(setDatabaseSize).catch(() => setDatabaseSize(null)); };
     refreshSize();
-    const listener = Promise.all([listen('clips-changed', refreshSize), listen('dictionary-changed', refreshSize)]);
+    const listener = Promise.all([listen('clips-changed', refreshSize), listen('dictionary-changed', refreshSize), listen('rules-changed', refreshSize), listen('storage-changed', refreshSize), listen<{kind:string}>('media-cache-cleared', event=>{if(event.payload.kind==='icons'){resetAppIconCache();setPrefs(current=>({...current}));}})]);
     return () => { void listener.then(unlisteners => unlisteners.forEach(unlisten => unlisten())); };
   }, []);
   useEffect(() => {
@@ -65,7 +69,8 @@ export function SettingsWindow() {
     const timer = window.setInterval(update, 1200);
     return () => window.clearInterval(timer);
   }, [category]);
-  const save = async (next: Preferences) => { setPrefs(next); setLanguage(next.language); applyTheme(next.theme, next.accent_color); try { await call('save_preferences', { preferences: next }); } catch (e) { setNotice(`设置未保存：${String(e)}`); const prior = await call<Preferences>('get_preferences'); setPrefs(prior); setLanguage(prior.language); applyTheme(prior.theme, prior.accent_color); } };
+  useEffect(()=>{animateSurface(document.querySelector('.settings-body'));},[category]);
+  const save = async (next: Preferences) => { setPrefs(next); setLanguage(next.language); applyTheme(next.theme, next.accent_color, next.disable_animations); try { await call('save_preferences', { preferences: next }); } catch (e) { setNotice(`设置未保存：${String(e)}`); const prior = await call<Preferences>('get_preferences'); setPrefs(prior); setLanguage(prior.language); applyTheme(prior.theme, prior.accent_color, prior.disable_animations); } };
   const appRule = (app: InstalledApp) => navigator.userAgent.includes('Windows') ? app.name : app.path;
   const isAppBlocked = (app: InstalledApp) => prefs.excluded_apps.some(rule => rule.toLocaleLowerCase() === app.name.toLocaleLowerCase() || rule.toLocaleLowerCase() === app.path.toLocaleLowerCase() || (rule.toLocaleLowerCase().endsWith('.app') && app.path.toLocaleLowerCase().startsWith(`${rule.toLocaleLowerCase()}/`)));
   const toggleAppBlocked = (app: InstalledApp) => {
@@ -89,7 +94,7 @@ export function SettingsWindow() {
       if (!path || !window.confirm(tr('恢复备份会覆盖当前所有记录和设置，无法撤销。确定继续吗？'))) return;
       await call('restore_database', { path });
       const [restored, size] = await Promise.all([call<Preferences>('get_preferences'), call<number>('get_database_size')]);
-      setPrefs(restored); setLanguage(restored.language); applyTheme(restored.theme, restored.accent_color); setDatabaseSize(size); setNotice(tr('备份已恢复'));
+      setPrefs(restored); setLanguage(restored.language); applyTheme(restored.theme, restored.accent_color, restored.disable_animations); setDatabaseSize(size); setNotice(tr('备份已恢复'));
     } catch (error) { setNotice(`恢复失败：${String(error)}`); }
     finally { setBackupBusy(false); }
   };
@@ -102,13 +107,16 @@ export function SettingsWindow() {
         <div className="settings-storage" aria-live="polite"><Database size={14}/><strong>{databaseSize === null ? '—' : formatBytes(databaseSize)} / {prefs.max_storage_mb === 0 ? tr('无限制') : formatBytes(prefs.max_storage_mb * 1048576)}</strong></div>
       </nav>
       <main className="settings-body"><h2>{tr(categories.find(c => c.id === category)?.label || '')}</h2>
+        {category === 'developer' && <><Toggle label={tr('诊断模式')} help={tr('记录设备、系统、版本、操作和耗时，不记录剪贴板内容')} checked={prefs.developer_mode} onChange={value=>void save({...prefs,developer_mode:value})}/><Setting label={tr('诊断日志')} help={tr('日志仅保存在本机，最多约 20 MB')}><button type="button" className="clear-history-button" onClick={()=>void call('export_diagnostics').catch(error=>setNotice(String(error)))}>{tr('导出日志')}</button></Setting></>}
+        {category === 'rules' && <><Toggle label={tr('启用规则')} checked={prefs.rules_enabled} onChange={value=>void save({...prefs,rules_enabled:value})}/>{prefs.rules_enabled && <RuleManager/>}</>}
         {category === 'appearance' && <>
-          <Setting label={tr('展示位置')} help={tr('选择面板出现的位置和样式')}><SettingsSelect label={tr('展示位置')} value={prefs.popup_position} options={[['cursor', tr('跟随光标')], ['center', tr('屏幕中间')], ['left', tr('屏幕左侧')], ['right', tr('屏幕右侧')], ['top', tr('屏幕顶部')], ['bottom', tr('屏幕底部')]]} onChange={value => void save({ ...prefs, popup_position: value as Preferences['popup_position'] })}/></Setting>
-          {(prefs.popup_position === 'left' || prefs.popup_position === 'right') && <Setting label={tr('卡片列数')} help={tr('左侧和右侧面板使用')}><div className="segmented"><button className={prefs.side_columns === 1 ? 'active' : ''} onClick={() => void save({ ...prefs, side_columns: 1 })}>{tr('一列') }</button><button className={prefs.side_columns === 2 ? 'active' : ''} onClick={() => void save({ ...prefs, side_columns: 2 })}>{tr('两列') }</button></div></Setting>}
+          <Setting label={tr('展示位置')} help={tr('选择面板出现的位置和样式')}><SettingsSelect label={tr('展示位置')} value={prefs.popup_position} options={[['cursor', tr('跟随光标')], ['center', tr('屏幕中间')]]} onChange={value => void save({ ...prefs, popup_position: value as Preferences['popup_position'] })}/></Setting>
           <Setting label={tr('语言')} help={tr('切换界面语言')}><SettingsSelect label={tr('语言')} value={prefs.language} options={[['zh-CN', tr('中文')], ['en-US', 'English']]} onChange={value => void save({ ...prefs, language: value as Preferences['language'] })}/></Setting>
           <Setting label={tr('主题')} help={tr('切换主题外观')}><SettingsSelect label={tr('主题')} value={prefs.theme} options={[['system', tr('跟随系统')], ['light', tr('浅色')], ['dark', tr('深色')]]} onChange={value => void save({ ...prefs, theme: value as Preferences['theme'] })}/></Setting>
           <Setting label={tr('主题色')} help={tr('界面主色调')}><input className="accent-picker" type="color" aria-label={tr('主题色')} value={prefs.accent_color} onChange={event => void save({ ...prefs, accent_color: event.target.value })}/></Setting>
+          <Toggle label={tr('默认打开侧栏')} checked={prefs.default_sidebar_open} onChange={value => void save({ ...prefs, default_sidebar_open: value })}/>
           <Toggle label={tr('内容预览')} help={tr('跟随光标显示剪贴板预览卡片')} checked={prefs.hover_preview} onChange={v => void save({ ...prefs, hover_preview: v })}/>
+          <Toggle label={tr('禁用动画效果')} checked={prefs.disable_animations} onChange={value => void save({ ...prefs, disable_animations: value })}/>
           <Toggle label={tr('显示来源应用图标')} help={tr('在记录条目中显示复制来源的应用图标')} checked={prefs.show_source_app_icon} onChange={value => void save({ ...prefs, show_source_app_icon: value })}/>
           <Setting label={tr('条目最大显示行数')} help={tr('超过设定行数的内容会省略')}><SettingsNumber label={tr('条目最大显示行数')} value={prefs.item_max_lines} min={1} max={10} onCommit={value => void save({ ...prefs, item_max_lines: value })}/></Setting>
           <Toggle label={tr('粘贴后回到顶部')} help={tr('粘贴后将记录列表滚回顶部')} checked={prefs.return_to_top_after_paste} onChange={v => void save({ ...prefs, return_to_top_after_paste: v })}/>
@@ -139,7 +147,7 @@ export function SettingsWindow() {
           <Setting label={tr('保留天数')} help={tr('设为 0 则不按时间清理')}><SettingsNumber label={tr('保留天数')} value={prefs.retention_days} min={0} max={3650} onCommit={value => void save({ ...prefs, retention_days: value })}/></Setting>
           <Setting label={tr('最多条数')} help={tr('设为 0 则不限制条数')}><SettingsNumber label={tr('最多条数')} value={prefs.max_items} min={0} max={1000000} onCommit={value => void save({ ...prefs, max_items: value })}/></Setting>
           <Setting label={tr('存储上限（MB）')} help={tr('设为 0 则不限制容量')}><SettingsNumber label={tr('存储上限（MB）')} value={prefs.max_storage_mb} min={0} max={102400} onCommit={value => void save({ ...prefs, max_storage_mb: value })}/></Setting>
-        </div><p className="settings-help">{tr('置顶和收藏的记录不自动清理。') }</p><Setting label={tr('清空所有记录')} help={tr('删除全部记录，包括置顶和收藏')}><button type="button" className="clear-history-button" onClick={() => setClearOpen(true)}>{tr('清空所有记录')}</button></Setting></>}
+        </div><StorageUsage onTotal={setDatabaseSize} onClearHistory={()=>setClearOpen(true)} clearing={clearing}/></>}
         {category === 'privacy' && <>
           <Setting label={tr('敏感内容')} help={tr('识别密钥、令牌和密码字段')}><SettingsSelect label={tr('敏感内容处理方式')} value={prefs.sensitive_action} options={[["mask", tr('保存并遮盖')], ["skip", tr('不加入历史')], ["save", tr('正常保存')]]} onChange={value => void save({ ...prefs, sensitive_action: value as Preferences['sensitive_action'] })}/></Setting>
           <h3>{tr('来源应用黑名单') }</h3><p className="settings-help">{tr('开启后不记录从该应用复制的内容。') }</p>
@@ -151,6 +159,7 @@ export function SettingsWindow() {
           <Setting label={tr('完全磁盘访问')} help={tr('需在系统设置中手动开启')}><button type="button" className="permission-button" onClick={() => void call<boolean>('open_system_permission', { kind: 'full_disk' }).then(setFullDiskGranted).catch(error => setNotice(`无法打开系统设置：${String(error)}`))}>{tr(fullDiskGranted === true ? '已开启' : fullDiskGranted === false ? '去开启' : '打开系统设置')}</button></Setting>
         </> : <p className="settings-help">{tr('Windows 无需单独开启这两项权限。') }</p>}</>}
         {category === 'startup' && <>
+          <Toggle label={tr('轻量模式')} help={tr('隐藏5秒后暂停界面刷新，保留窗口和图片缓存')} checked={prefs.lightweight_mode} onChange={value => void save({ ...prefs, lightweight_mode: value })}/>
           <Toggle label={tr('在菜单栏／托盘显示')} help={tr('关闭后仍可用快捷键打开面板')} checked={prefs.show_tray_icon} onChange={v => void save({ ...prefs, show_tray_icon: v })}/>
           {navigator.userAgent.includes('Mac') && <Toggle label={tr('在 Dock 显示')} help={tr('关闭后仍可用快捷键呼出面板')} checked={prefs.show_dock_icon} onChange={v => void save({ ...prefs, show_dock_icon: v })}/>}
           <Toggle label={tr('开机启动')} help={tr('登录电脑后开始后台记录')} checked={prefs.launch_at_login} onChange={v => void save({ ...prefs, launch_at_login: v })}/>

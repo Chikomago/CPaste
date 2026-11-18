@@ -1,7 +1,6 @@
 use crate::models::{Clip, State};
 use crate::privacy::{contains_sensitive, mask_sensitive};
 use crate::state::{db, err, prefs};
-use base64::Engine;
 use rusqlite::OptionalExtension;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,7 +10,7 @@ use tokio::sync::Semaphore;
 // full-resolution decodes while a list of thumbnails is loading.
 static IMAGE_OPERATIONS: Semaphore = Semaphore::const_new(1);
 
-async fn image_task<T: Send + 'static>(
+pub(crate) async fn image_task<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
     let permit = IMAGE_OPERATIONS.acquire().await.map_err(err)?;
@@ -30,7 +29,8 @@ pub(crate) async fn list_clips(s: tauri::State<'_, Arc<State>>) -> Result<Vec<Cl
         let s = state;
     let c = db(&s)?;
     let mask = prefs(&s)?.sensitive_action == "mask";
-    let mut q=c.prepare("SELECT id,kind,title,plain_text,html,rtf,files_json,source_app,source_path,created_at,pinned,favorite,updated_at,use_count FROM clips ORDER BY pinned DESC,id DESC").map_err(err)?;
+    crate::resources::migrate_schema(&c)?;
+    let mut q=c.prepare("SELECT id,kind,title,plain_text,html,rtf,files_json,source_app,source_path,created_at,pinned,favorite,updated_at,use_count,COALESCE(image_size,LENGTH(image_data)),SUBSTR(image_data,1,32),image_format FROM clips ORDER BY pinned DESC,id DESC").map_err(err)?;
     let result = q
         .query_map([], |r| {
             let files: String = r.get(6)?;
@@ -66,6 +66,8 @@ pub(crate) async fn list_clips(s: tauri::State<'_, Arc<State>>) -> Result<Vec<Cl
                     files
                 },
                 image_data: None,
+                image_size: if sensitive {None} else {r.get(14)?},
+                image_format: if sensitive {None} else {r.get::<_,Option<String>>(16)?.or_else(||r.get::<_,Option<Vec<u8>>>(15).ok().flatten().and_then(|header|image::guess_format(&header).ok()).map(|format|format.extensions_str()[0].to_uppercase()))},
                 source_app: r.get(7)?,
                 source_path: r.get(8)?,
                 created_at: chrono::DateTime::from_timestamp(ts, 0)
@@ -87,63 +89,87 @@ pub(crate) async fn list_clips(s: tauri::State<'_, Arc<State>>) -> Result<Vec<Cl
 
     }).await
 }
-#[tauri::command]
-pub(crate) async fn get_clip_image(
-    s: tauri::State<'_, Arc<State>>,
-    id: i64,
-) -> Result<Option<String>, String> {
-    let state = s.inner().clone();
-    image_task(move || {
-        Ok(clip_image_bytes(&state, id)?
-            .map(|v| base64::engine::general_purpose::STANDARD.encode(v)))
-    })
-    .await
+fn image_record(s: &State, id: i64) -> Result<Option<(Option<String>, Option<Vec<u8>>)>, String> {
+    let mask = prefs(s)?.sensitive_action == "mask";
+    let c = db(s)?;
+    crate::resources::migrate_schema(&c)?;
+    c.query_row("SELECT image_key,image_data,plain_text,html,rtf,files_json FROM clips WHERE id=?1 AND kind='image'",[id],|r|{
+        let text:String=r.get(2)?;let html:Option<String>=r.get(3)?;let rtf:Option<String>=r.get(4)?;let files:Vec<String>=serde_json::from_str(&r.get::<_,String>(5)?).unwrap_or_default();
+        if mask&&contains_sensitive(&text,html.as_deref(),rtf.as_deref(),&files){Ok(None)}else{Ok(Some((r.get(0)?,r.get(1)?)))}
+    }).optional().map_err(err).map(Option::flatten)
 }
 pub(crate) fn clip_image_bytes(s: &State, id: i64) -> Result<Option<Vec<u8>>, String> {
-    let mask = prefs(s)?.sensitive_action == "mask";
-    let image = db(s)?
-        .query_row(
-            "SELECT image_data,plain_text,html,rtf,files_json FROM clips WHERE id=?1",
-            [id],
-            |r| {
-                let text: String = r.get(1)?;
-                let html: Option<String> = r.get(2)?;
-                let rtf: Option<String> = r.get(3)?;
-                let files: String = r.get(4)?;
-                let files: Vec<String> = serde_json::from_str(&files).unwrap_or_default();
-                if mask && contains_sensitive(&text, html.as_deref(), rtf.as_deref(), &files) {
-                    Ok(None)
-                } else {
-                    r.get(0)
-                }
-            },
-        )
-        .optional()
-        .map_err(err)?
-        .flatten();
-    Ok(image)
+    let Some((key, legacy)) = image_record(s, id)? else {
+        return Ok(None);
+    };
+    if let Some(bytes) = legacy {
+        return Ok(Some(bytes));
+    }
+    key.map(|key| crate::resources::read(&*db(s)?, &key))
+        .transpose()
+}
+fn clip_image_key(s: &State, id: i64) -> Result<Option<String>, String> {
+    let Some((key, legacy)) = image_record(s, id)? else {
+        return Ok(None);
+    };
+    if let Some(bytes) = legacy {
+        return crate::resources::attach(&*db(s)?, id, &bytes).map(Some);
+    }
+    Ok(key)
 }
 #[tauri::command]
-pub(crate) async fn get_clip_thumbnail(
+pub(crate) async fn get_clip_image_path(
     s: tauri::State<'_, Arc<State>>,
     id: i64,
 ) -> Result<Option<String>, String> {
     let state = s.inner().clone();
     image_task(move || {
-        let Some(bytes) = clip_image_bytes(&state, id)? else {
+        let Some(key) = clip_image_key(&state, id)? else {
             return Ok(None);
         };
         Ok(Some(
-            base64::engine::general_purpose::STANDARD.encode(thumbnail_png(&bytes)?),
+            crate::resources::image_path(&*db(&state)?, &key, false)?
+                .to_string_lossy()
+                .into_owned(),
         ))
     })
     .await
 }
+#[tauri::command]
+pub(crate) async fn get_clip_thumbnail_path(
+    s: tauri::State<'_, Arc<State>>,
+    id: i64,
+) -> Result<Option<String>, String> {
+    let state = s.inner().clone();
+    image_task(move || {
+        let Some(key) = clip_image_key(&state, id)? else {
+            return Ok(None);
+        };
+        let cached = crate::resources::image_path(&*db(&state)?, &key, true)?;
+        if cached.is_file() {
+            return Ok(Some(cached.to_string_lossy().into_owned()));
+        }
+        let Some(bytes) = clip_image_bytes(&state, id)? else {
+            return Ok(None);
+        };
+        let png = thumbnail_png(&bytes)?;
+        if clip_image_key(&state, id)?.as_deref() != Some(key.as_str()) {
+            return Ok(None);
+        }
+        Ok(Some(
+            crate::resources::cache_thumbnail(&*db(&state)?, &key, &png)?
+                .to_string_lossy()
+                .into_owned(),
+        ))
+    })
+    .await
+}
+
 pub(crate) fn thumbnail_png(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let image = image::load_from_memory(&bytes).map_err(err)?;
-    // Cover the largest 360px card at 2x density without enlarging small images.
-    let thumbnail = if image.width() > 768 || image.height() > 768 {
-        image.resize(768, 768, image::imageops::FilterType::Lanczos3)
+    // Match EcoPaste: a persistent PNG thumbnail, longest edge at most 300px.
+    let thumbnail = if image.width() > 300 || image.height() > 300 {
+        image.resize(300, 300, image::imageops::FilterType::Lanczos3)
     } else {
         image
     };
@@ -154,10 +180,42 @@ pub(crate) fn thumbnail_png(bytes: &[u8]) -> Result<Vec<u8>, String> {
     Ok(output.into_inner())
 }
 #[tauri::command]
-pub(crate) async fn get_app_icon(source_path: String) -> Result<Option<String>, String> {
+pub(crate) async fn get_app_icon_path(
+    s: tauri::State<'_, Arc<State>>,
+    source_path: String,
+) -> Result<Option<String>, String> {
+    let state = s.inner().clone();
     crate::background::run(move || {
-        Ok(app_icon_png(&source_path)
-            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes)))
+        let stamp = std::fs::metadata(&source_path).ok().map(|metadata| {
+            format!(
+                "{}:{}",
+                metadata.len(),
+                metadata
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0)
+            )
+        });
+        {
+            let c = db(&state)?;
+            crate::resources::migrate_schema(&c)?;
+            if let Some(path) = crate::resources::cached_icon(&c, &source_path, stamp.as_deref())? {
+                return Ok(Some(path.to_string_lossy().into_owned()));
+            }
+        }
+        let Some(stamp) = stamp else {
+            return Ok(None);
+        };
+        let Some(bytes) = app_icon_png(&source_path) else {
+            return Ok(None);
+        };
+        Ok(Some(
+            crate::resources::cache_icon(&*db(&state)?, &source_path, &stamp, &bytes)?
+                .to_string_lossy()
+                .into_owned(),
+        ))
     })
     .await
 }

@@ -116,9 +116,7 @@ pub(crate) fn validate_preferences(preferences: &Preferences) -> Result<(), Stri
     {
         return Err("主题色格式无效".into());
     }
-    if !["center", "cursor", "left", "right", "top", "bottom"]
-        .contains(&preferences.popup_position.as_str())
-    {
+    if !["center", "cursor"].contains(&preferences.popup_position.as_str()) {
         return Err("面板位置设置无效".into());
     }
     if !(1..=2).contains(&preferences.side_columns)
@@ -139,15 +137,33 @@ pub(crate) fn activate_preferences(
 ) -> Result<(), String> {
     let old = prefs(s)?;
     if old.shortcut != preferences.shortcut {
-        app.global_shortcut()
-            .unregister(old.shortcut.as_str())
-            .map_err(err)?;
-        if let Err(e) = app
-            .global_shortcut()
-            .register(preferences.shortcut.as_str())
-        {
-            let _ = app.global_shortcut().register(old.shortcut.as_str());
-            return Err(format!("快捷键不可用：{e}"));
+        let old_keys: Vec<_> = [&old.shortcut]
+            .into_iter()
+            .filter(|key| !key.is_empty())
+            .collect();
+        let new_keys: Vec<_> = [&preferences.shortcut]
+            .into_iter()
+            .filter(|key| !key.is_empty())
+            .collect();
+        for key in &old_keys {
+            if app.global_shortcut().is_registered(key.as_str()) {
+                app.global_shortcut()
+                    .unregister(key.as_str())
+                    .map_err(err)?;
+            }
+        }
+        for key in &new_keys {
+            if let Err(error) = app.global_shortcut().register(key.as_str()) {
+                for registered in &new_keys {
+                    if app.global_shortcut().is_registered(registered.as_str()) {
+                        let _ = app.global_shortcut().unregister(registered.as_str());
+                    }
+                }
+                for original in &old_keys {
+                    let _ = app.global_shortcut().register(original.as_str());
+                }
+                return Err(format!("快捷键不可用：{error}"));
+            }
         }
     }
     if old.launch_at_login != preferences.launch_at_login {
@@ -173,11 +189,13 @@ pub(crate) fn activate_preferences(
         ))
         .map_err(err)?;
     }
+    crate::diagnostics::configure(app, preferences.developer_mode)?;
     *s.prefs.lock().map_err(err)? = preferences;
     if persist {
         cleanup(s)?;
     }
     if persist {
+        app.emit("preferences-changed", ()).map_err(err)?;
         app.emit("clips-changed", ()).map_err(err)?;
     }
     Ok(())

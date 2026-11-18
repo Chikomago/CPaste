@@ -29,6 +29,9 @@ jobs:
           workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - run: pnpm test:tools
+      - run: pnpm test:scroll
+      - run: pnpm test:js-rules
       - run: pnpm test:segmentation
       - run: python scripts/test-release.py
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check

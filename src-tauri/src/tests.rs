@@ -14,7 +14,7 @@ use rusqlite::Connection;
 #[test]
 fn record_query_does_not_block_ipc_when_database_is_busy() {
     let c = Connection::open_in_memory().unwrap();
-    c.execute_batch("CREATE TABLE clips(id INTEGER PRIMARY KEY,kind TEXT,title TEXT,plain_text TEXT,html TEXT,rtf TEXT,files_json TEXT,source_app TEXT,source_path TEXT,created_at INTEGER,pinned INTEGER,favorite INTEGER,updated_at INTEGER,use_count INTEGER); CREATE TABLE app_settings(key TEXT PRIMARY KEY,value TEXT);").unwrap();
+    c.execute_batch("CREATE TABLE clips(id INTEGER PRIMARY KEY,kind TEXT,title TEXT,plain_text TEXT,html TEXT,rtf TEXT,files_json TEXT,source_app TEXT,source_path TEXT,created_at INTEGER,pinned INTEGER,favorite INTEGER,updated_at INTEGER,use_count INTEGER,image_data BLOB); CREATE TABLE app_settings(key TEXT PRIMARY KEY,value TEXT);").unwrap();
     let state = Arc::new(State {
         db: Mutex::new(c),
         prefs: Mutex::new(Preferences::default()),
@@ -98,26 +98,29 @@ fn record_query_does_not_block_ipc_when_database_is_busy() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn preparing_stored_png_for_paste_does_not_decode_pixels() {
+fn preparing_stored_png_and_jpeg_for_paste_does_not_decode_pixels() {
     let image = image::DynamicImage::new_rgb8(4000, 3000);
-    let mut png = std::io::Cursor::new(Vec::new());
-    image.write_to(&mut png, image::ImageFormat::Png).unwrap();
-    let png = png.into_inner();
-    let original = png.clone();
-    let start = std::time::Instant::now();
-    let content = crate::clipboard::clipboard_image_content(png).unwrap();
-    let elapsed = start.elapsed();
-    eprintln!("prepare PNG paste: {elapsed:?}");
-    assert!(
-        elapsed < Duration::from_millis(100),
-        "Preparing an already-encoded PNG decoded the full image: {elapsed:?}"
-    );
-    match content {
-        clipboard_rs::ClipboardContent::Other(format, bytes) => {
-            assert_eq!(format, "public.png");
-            assert_eq!(bytes, original);
+    for (format, mime) in [
+        (image::ImageFormat::Png, "public.png"),
+        (image::ImageFormat::Jpeg, "public.jpeg"),
+    ] {
+        let mut encoded = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut encoded, format).unwrap();
+        let bytes = encoded.into_inner();
+        let original = bytes.clone();
+        let start = std::time::Instant::now();
+        let content = crate::clipboard::clipboard_image_content(bytes).unwrap();
+        assert!(
+            start.elapsed() < Duration::from_millis(100),
+            "encoded {format:?} must not be decoded for the native pasteboard"
+        );
+        match content {
+            clipboard_rs::ClipboardContent::Other(kind, bytes) => {
+                assert_eq!(kind, mime);
+                assert_eq!(bytes, original);
+            }
+            _ => panic!("original image must remain encoded"),
         }
-        _ => panic!("The original PNG should remain encoded for the native pasteboard"),
     }
 }
 
@@ -128,12 +131,13 @@ fn large_image_thumbnail_does_not_block_ipc_dispatch() {
     let mut png = std::io::Cursor::new(Vec::new());
     image.write_to(&mut png, image::ImageFormat::Png).unwrap();
     let c = Connection::open_in_memory().unwrap();
-    c.execute_batch("CREATE TABLE clips(id INTEGER PRIMARY KEY,image_data BLOB,plain_text TEXT,html TEXT,rtf TEXT,files_json TEXT);").unwrap();
+    c.execute_batch("CREATE TABLE clips(id INTEGER PRIMARY KEY,image_data BLOB,plain_text TEXT,html TEXT,rtf TEXT,files_json TEXT,kind TEXT NOT NULL DEFAULT 'image');").unwrap();
     c.execute(
-        "INSERT INTO clips VALUES(1,?1,'',NULL,NULL,'[]')",
+        "INSERT INTO clips(id,image_data,plain_text,html,rtf,files_json) VALUES(1,?1,'',NULL,NULL,'[]')",
         [png.into_inner()],
     )
     .unwrap();
+
     let state = Arc::new(State {
         db: Mutex::new(c),
         prefs: Mutex::new(Preferences::default()),
@@ -145,31 +149,34 @@ fn large_image_thumbnail_does_not_block_ipc_dispatch() {
         target_hwnd: AtomicU64::new(0),
     });
     let app = tauri::test::mock_builder()
-        .manage(state)
-        .invoke_handler(tauri::generate_handler![crate::clips::get_clip_thumbnail])
+        .manage(state.clone())
+        .invoke_handler(tauri::generate_handler![
+            crate::clips::get_clip_thumbnail_path
+        ])
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
     let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .unwrap();
+    let request = || tauri::webview::InvokeRequest {
+        cmd: "get_clip_thumbnail_path".into(),
+        callback: CallbackFn(0),
+        error: CallbackFn(1),
+        url: if cfg!(target_os = "windows") {
+            "http://tauri.localhost"
+        } else {
+            "tauri://localhost"
+        }
+        .parse()
+        .unwrap(),
+        body: InvokeBody::Json(serde_json::json!({"id":1})),
+        headers: Default::default(),
+        invoke_key: tauri::test::INVOKE_KEY.into(),
+    };
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     let start = std::time::Instant::now();
     window.as_ref().clone().on_message(
-        tauri::webview::InvokeRequest {
-            cmd: "get_clip_thumbnail".into(),
-            callback: CallbackFn(0),
-            error: CallbackFn(1),
-            url: if cfg!(target_os = "windows") {
-                "http://tauri.localhost"
-            } else {
-                "tauri://localhost"
-            }
-            .parse()
-            .unwrap(),
-            body: InvokeBody::Json(serde_json::json!({"id":1})),
-            headers: Default::default(),
-            invoke_key: tauri::test::INVOKE_KEY.into(),
-        },
+        request(),
         Box::new(move |_, _, response, _, _| {
             let _ = tx.send(response);
         }),
@@ -185,6 +192,38 @@ fn large_image_thumbnail_does_not_block_ipc_dispatch() {
     assert!(
         dispatch < Duration::from_millis(100),
         "Image work blocked the UI/IPC thread for {dispatch:?}"
+    );
+
+    let c = db(&state).unwrap();
+    let key: String = c
+        .query_row("SELECT image_key FROM clips WHERE id=1", [], |r| r.get(0))
+        .unwrap();
+    let thumbnail = crate::resources::image_path(&c, &key, true).unwrap();
+    assert!(thumbnail.is_file());
+    let decoded = image::open(&thumbnail).unwrap();
+    assert!(decoded.width() <= 300 && decoded.height() <= 300);
+    // A disk thumbnail remains reusable even when the original is unavailable.
+    std::fs::remove_file(crate::resources::image_path(&c, &key, false).unwrap()).unwrap();
+    drop(c);
+    let cached: Option<String> = tauri::test::get_ipc_response(&window, request())
+        .unwrap()
+        .deserialize()
+        .unwrap();
+    assert!(cached.is_some());
+    db(&state)
+        .unwrap()
+        .execute(
+            "UPDATE clips SET plain_text='password=secret123456' WHERE id=1",
+            [],
+        )
+        .unwrap();
+    let masked: Option<String> = tauri::test::get_ipc_response(&window, request())
+        .unwrap()
+        .deserialize()
+        .unwrap();
+    assert!(
+        masked.is_none(),
+        "Persistent thumbnails must obey the current privacy policy"
     );
 }
 
@@ -217,14 +256,16 @@ fn new_appearance_preferences_default_for_existing_settings() {
 }
 
 #[test]
-fn shortcut_positions_include_all_four_sides() {
+fn shortcut_positions_only_allow_center_and_cursor() {
     let mut preferences = Preferences::default();
-    for position in ["center", "cursor", "left", "right", "top", "bottom"] {
+    for position in ["center", "cursor"] {
         preferences.popup_position = position.into();
         assert!(validate_preferences(&preferences).is_ok(), "{position}");
     }
-    preferences.popup_position = "unknown".into();
-    assert!(validate_preferences(&preferences).is_err());
+    for position in ["left", "right", "top", "bottom", "unknown"] {
+        preferences.popup_position = position.into();
+        assert!(validate_preferences(&preferences).is_err(), "{position}");
+    }
 }
 
 #[test]
@@ -326,7 +367,7 @@ fn image_thumbnail_has_bounded_size() {
         .unwrap();
     let result = thumbnail_png(&bytes.into_inner()).unwrap();
     let image = image::load_from_memory(&result).unwrap();
-    assert_eq!((image.width(), image.height()), (768, 384));
+    assert_eq!((image.width(), image.height()), (300, 150));
     let small = image::DynamicImage::new_rgb8(40, 20);
     let mut bytes = std::io::Cursor::new(Vec::new());
     small.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
@@ -433,4 +474,261 @@ fn zero_storage_limits_keep_old_records() {
         .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))
         .unwrap();
     assert_eq!(count, 1);
+}
+
+// Run explicitly to compare debug/release image processing without clipboard data.
+#[test]
+#[ignore]
+fn benchmark_large_image_thumbnail() {
+    let source = image::RgbImage::from_fn(3000, 2000, |x, y| {
+        image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
+    });
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(source)
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let started = std::time::Instant::now();
+    let result = thumbnail_png(png.get_ref()).unwrap();
+    eprintln!(
+        "thumbnail_benchmark 3000x2000 total_ms={:.1}",
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    let result = image::load_from_memory(&result).unwrap();
+    assert_eq!((result.width(), result.height()), (768, 512));
+}
+
+#[test]
+fn flag_commands_return_authoritative_values_and_emit_targeted_patches() {
+    use tauri::Listener;
+    let c = Connection::open_in_memory().unwrap();
+    c.execute_batch("CREATE TABLE clips(id INTEGER PRIMARY KEY,pinned INTEGER,favorite INTEGER); INSERT INTO clips VALUES(1,0,0);").unwrap();
+    let state = Arc::new(State {
+        db: Mutex::new(c),
+        prefs: Mutex::new(Preferences::default()),
+        suppress_next: AtomicBool::new(false),
+        listening: AtomicBool::new(true),
+        picker_pinned: AtomicBool::new(false),
+        target_pid: AtomicU64::new(0),
+        #[cfg(target_os = "windows")]
+        target_hwnd: AtomicU64::new(0),
+    });
+    let app = tauri::test::mock_builder()
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![
+            crate::clipboard::toggle_pin,
+            crate::clipboard::toggle_favorite
+        ])
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let events = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+    let received = events.clone();
+    app.listen("clips-changed", move |event| {
+        received
+            .lock()
+            .unwrap()
+            .push(serde_json::from_str(event.payload()).unwrap())
+    });
+    for (command, field) in [("toggle_pin", "pinned"), ("toggle_favorite", "favorite")] {
+        for expected in [true, false] {
+            let result: bool = tauri::test::get_ipc_response(
+                &window,
+                tauri::webview::InvokeRequest {
+                    cmd: command.into(),
+                    callback: tauri::ipc::CallbackFn(0),
+                    error: tauri::ipc::CallbackFn(1),
+                    url: if cfg!(target_os = "windows") {
+                        "http://tauri.localhost"
+                    } else {
+                        "tauri://localhost"
+                    }
+                    .parse()
+                    .unwrap(),
+                    body: tauri::ipc::InvokeBody::Json(serde_json::json!({"id":1})),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.into(),
+                },
+            )
+            .unwrap()
+            .deserialize()
+            .unwrap();
+            assert_eq!(result, expected);
+            let patch = events.lock().unwrap().last().unwrap().clone();
+            assert_eq!(patch["updated_id"], 1);
+            assert_eq!(patch[field], expected);
+            assert_eq!(patch.as_object().unwrap().len(), 2);
+        }
+    }
+}
+
+#[test]
+fn image_export_preserves_bytes_and_never_overwrites_downloads_implicitly() {
+    let path = std::env::temp_dir().join(format!(
+        "cpaste-export-{}-{}.png",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let png = b"\x89PNG\r\n\x1a\noriginal";
+    crate::content_tools::write_image_file(&path, png, false).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), png);
+    assert!(crate::content_tools::write_image_file(&path, b"replacement", false).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), png);
+    crate::content_tools::write_image_file(&path, b"replacement", true).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+    std::fs::remove_file(path).unwrap();
+}
+#[test]
+fn legacy_preferences_keep_the_primary_shortcut_without_registering_undo() {
+    let c = Connection::open_in_memory().unwrap();
+    c.execute_batch("CREATE TABLE app_settings(key TEXT,value TEXT); INSERT INTO app_settings VALUES('preferences','{\"shortcut\":\"CommandOrControl+Alt+Z\"}');").unwrap();
+    let value = crate::database::load_prefs(&c);
+    assert_eq!(value.shortcut, "CommandOrControl+Alt+Z");
+    let defaults = Preferences::default();
+    crate::preferences::validate_preferences(&defaults).unwrap();
+}
+#[test]
+fn text_tool_source_preserves_rich_formats_and_rejects_masked_content() {
+    let c = Connection::open_in_memory().unwrap();
+    c.execute_batch("CREATE TABLE clips(id INTEGER PRIMARY KEY,kind TEXT,plain_text TEXT,html TEXT,rtf TEXT); INSERT INTO clips VALUES(1,'rich','bold','<b>bold</b>',NULL),(2,'text','password=secret123456',NULL,NULL),(3,'image','',NULL,NULL);").unwrap();
+    let state = Arc::new(State {
+        db: Mutex::new(c),
+        prefs: Mutex::new(Preferences::default()),
+        suppress_next: AtomicBool::new(false),
+        listening: AtomicBool::new(true),
+        picker_pinned: AtomicBool::new(false),
+        target_pid: AtomicU64::new(0),
+        #[cfg(target_os = "windows")]
+        target_hwnd: AtomicU64::new(0),
+    });
+    let app = tauri::test::mock_builder()
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![
+            crate::content_tools::get_transform_source
+        ])
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let invoke = |id| {
+        tauri::test::get_ipc_response(
+            &window,
+            tauri::webview::InvokeRequest {
+                cmd: "get_transform_source".into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: if cfg!(target_os = "windows") {
+                    "http://tauri.localhost"
+                } else {
+                    "tauri://localhost"
+                }
+                .parse()
+                .unwrap(),
+                body: tauri::ipc::InvokeBody::Json(serde_json::json!({"id":id})),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.into(),
+            },
+        )
+    };
+    let source: serde_json::Value = invoke(1).unwrap().deserialize().unwrap();
+    assert_eq!(source["html"], "<b>bold</b>");
+    assert_eq!(source["text"], "bold");
+    for id in [2, 3, 99] {
+        assert!(invoke(id).is_err());
+    }
+}
+
+#[test]
+fn editor_saves_rich_transforms_and_plain_edits_without_losing_flags() {
+    use tauri::Manager;
+    let c = Connection::open_in_memory().unwrap();
+    c.execute_batch("CREATE TABLE clips(id INTEGER PRIMARY KEY,kind TEXT,title TEXT,plain_text TEXT,html TEXT,rtf TEXT,files_json TEXT,fingerprint TEXT,updated_at TEXT,pinned INTEGER,favorite INTEGER); INSERT INTO clips VALUES(1,'text','old','old',NULL,NULL,'[]','','',1,1);").unwrap();
+    let state = Arc::new(State {
+        db: Mutex::new(c),
+        prefs: Mutex::new(Preferences::default()),
+        suppress_next: AtomicBool::new(false),
+        listening: AtomicBool::new(true),
+        picker_pinned: AtomicBool::new(false),
+        target_pid: AtomicU64::new(0),
+        #[cfg(target_os = "windows")]
+        target_hwnd: AtomicU64::new(0),
+    });
+    let app = tauri::test::mock_builder()
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![crate::clipboard::edit_clip])
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    for (html, kind) in [(Some("<b>new</b>"), "rich"), (None, "text")] {
+        let response:serde_json::Value=tauri::test::get_ipc_response(&window,tauri::webview::InvokeRequest{cmd:"edit_clip".into(),callback:tauri::ipc::CallbackFn(0),error:tauri::ipc::CallbackFn(1),url:if cfg!(target_os="windows"){"http://tauri.localhost"}else{"tauri://localhost"}.parse().unwrap(),body:tauri::ipc::InvokeBody::Json(serde_json::json!({"id":1,"content":"new","formattedHtml":html,"formattedRtf":null})),headers:Default::default(),invoke_key:tauri::test::INVOKE_KEY.into()}).unwrap().deserialize().unwrap();
+        assert_eq!(response["updated_id"], 1);
+        assert_eq!(response["plain_text"], "new");
+        assert_eq!(response["kind"], kind);
+        assert!(response["updated_at"].is_string());
+        let state = app.state::<Arc<State>>();
+        let c = db(&state).unwrap();
+        let row: (String, Option<String>, i64, i64) = c
+            .query_row(
+                "SELECT kind,html,pinned,favorite FROM clips WHERE id=1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(row, (kind.into(), html.map(str::to_owned), 1, 1));
+    }
+    let result = tauri::test::get_ipc_response(
+        &window,
+        tauri::webview::InvokeRequest {
+            cmd: "edit_clip".into(),
+            callback: tauri::ipc::CallbackFn(0),
+            error: tauri::ipc::CallbackFn(1),
+            url: if cfg!(target_os = "windows") {
+                "http://tauri.localhost"
+            } else {
+                "tauri://localhost"
+            }
+            .parse()
+            .unwrap(),
+            body: tauri::ipc::InvokeBody::Json(
+                serde_json::json!({"id":1,"content":"stale restore","expectedSource":{"text":"old","html":null,"rtf":null}}),
+            ),
+            headers: Default::default(),
+            invoke_key: tauri::test::INVOKE_KEY.into(),
+        },
+    );
+    assert!(result.is_err());
+    let state = app.state::<Arc<State>>();
+    let current: String = db(&state)
+        .unwrap()
+        .query_row("SELECT plain_text FROM clips WHERE id=1", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(current, "new");
+}
+
+#[test]
+fn animations_are_enabled_by_default_and_user_choice_round_trips() {
+    let defaults: Preferences = serde_json::from_str("{}").unwrap();
+    assert!(!defaults.disable_animations);
+    let mut enabled = defaults;
+    enabled.disable_animations = true;
+    let restored: Preferences =
+        serde_json::from_str(&serde_json::to_string(&enabled).unwrap()).unwrap();
+    assert!(restored.disable_animations);
+    assert!(validate_preferences(&restored).is_ok());
+}
+
+#[test]
+fn lightweight_mode_defaults_on_and_can_be_disabled() {
+    let defaults: Preferences = serde_json::from_str("{}").unwrap();
+    assert!(defaults.lightweight_mode);
+    let saved: Preferences = serde_json::from_str("{\"lightweight_mode\":false}").unwrap();
+    assert!(!saved.lightweight_mode);
+    assert!(validate_preferences(&saved).is_ok());
 }

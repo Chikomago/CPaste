@@ -65,6 +65,7 @@ pub(crate) fn full_monitor_area(monitor: &tauri::Monitor) -> tauri::PhysicalRect
     }
 }
 pub(crate) fn show_picker(app: &AppHandle) {
+    crate::diagnostics::record("picker_show", serde_json::json!({}));
     remember_target(app);
     if let Some(state) = app.try_state::<Arc<State>>() {
         state.picker_pinned.store(false, Ordering::SeqCst);
@@ -75,12 +76,7 @@ pub(crate) fn show_picker(app: &AppHandle) {
             .try_state::<Arc<State>>()
             .and_then(|s| prefs(&s).ok())
             .unwrap_or_default();
-        let edge =
-            if ["left", "right", "top", "bottom"].contains(&picker_prefs.popup_position.as_str()) {
-                picker_prefs.popup_position.clone()
-            } else {
-                "none".to_string()
-            };
+        let edge = "none".to_string();
         let cursor = app.cursor_position().ok();
         let monitor = cursor.as_ref().and_then(|cursor| {
             app.available_monitors()
@@ -88,50 +84,19 @@ pub(crate) fn show_picker(app: &AppHandle) {
                 .into_iter()
                 .find(|monitor| cursor_on_monitor(*cursor, *monitor.position(), *monitor.size()))
         });
-        let edge_area = monitor.as_ref().map(full_monitor_area);
         let scale = monitor.as_ref().map(|m| m.scale_factor()).unwrap_or(1.0);
-        let card_size = picker_prefs.edge_card_size as f64;
-        let (width, height) = if matches!(edge.as_str(), "top" | "bottom") {
-            let available = monitor
-                .as_ref()
-                .map(|m| m.size().width as f64 / scale)
-                .unwrap_or(900.0);
-            (available.max(120.0), card_size + 60.0)
-        } else if matches!(edge.as_str(), "left" | "right") {
-            let available_height = monitor
-                .as_ref()
-                .map(|m| m.size().height as f64 / scale)
-                .unwrap_or(600.0);
-            let available_width = monitor
-                .as_ref()
-                .map(|m| m.size().width as f64 / scale - 16.0)
-                .unwrap_or(420.0);
-            let card_width = card_size * picker_prefs.side_columns as f64
-                + 7.0 * (picker_prefs.side_columns - 1) as f64
-                + 16.0;
-            (
-                card_width.min(available_width.max(120.0)),
-                available_height.max(180.0),
-            )
+        let width = if picker_prefs.hover_preview || picker_prefs.default_sidebar_open {
+            650.0
         } else {
-            (
-                if picker_prefs.hover_preview {
-                    650.0
-                } else {
-                    350.0
-                },
-                600.0,
-            )
+            350.0
         };
+        let height = 600.0;
         if let Err(error) = window.set_size(tauri::LogicalSize::new(width, height)) {
             eprintln!("CPaste 面板尺寸设置失败：{error}");
         }
         let mut position = None;
         if let (Some(cursor), Some(monitor)) = (cursor, monitor) {
-            let area = edge_area
-                .as_ref()
-                .filter(|_| edge != "none")
-                .unwrap_or_else(|| monitor.work_area());
+            let area = monitor.work_area();
             let left = area.position.x;
             let top = area.position.y;
             let right = left + area.size.width as i32;
@@ -140,15 +105,7 @@ pub(crate) fn show_picker(app: &AppHandle) {
             let panel_height = (height * scale).round() as i32;
             let max_x = right.saturating_sub(panel_width).max(left);
             let max_y = bottom.saturating_sub(panel_height).max(top);
-            let (x, y) = if edge == "left" {
-                (left, top)
-            } else if edge == "right" {
-                (right - panel_width, top)
-            } else if edge == "top" {
-                (left, top)
-            } else if edge == "bottom" {
-                (left, bottom - panel_height)
-            } else if picker_prefs.popup_position == "cursor" {
+            let (x, y) = if picker_prefs.popup_position == "cursor" {
                 (
                     (cursor.x as i32 + 12).clamp(left, max_x),
                     (cursor.y as i32 + 12).clamp(top, max_y),
@@ -175,6 +132,7 @@ pub(crate) fn show_picker(app: &AppHandle) {
                 "picker-opening",
                 PickerOpening {
                     edge: edge.clone(),
+                    sidebar_open: picker_prefs.default_sidebar_open,
                     width,
                     height,
                 },
@@ -192,6 +150,7 @@ pub(crate) fn show_picker(app: &AppHandle) {
                 "picker-opening",
                 PickerOpening {
                     edge: edge.clone(),
+                    sidebar_open: picker_prefs.default_sidebar_open,
                     width,
                     height,
                 },
@@ -223,6 +182,8 @@ pub(crate) fn reveal_picker(app: AppHandle, edge: String) -> Result<(), String> 
     Ok(())
 }
 pub(crate) fn hide_picker_window(app: &AppHandle) -> Result<(), String> {
+    crate::diagnostics::record("picker_hide", serde_json::json!({}));
+    let _ = crate::menus::hide_rule_menu(app.clone());
     #[cfg(target_os = "macos")]
     {
         let handle = app.clone();
@@ -239,6 +200,7 @@ pub(crate) fn hide_picker_window(app: &AppHandle) -> Result<(), String> {
             window.hide().map_err(err)?;
         }
     }
+    app.emit("picker-hidden", ()).map_err(err)?;
     Ok(())
 }
 #[tauri::command]
@@ -268,7 +230,7 @@ pub(crate) async fn get_preview_clip(
     let mask = prefs(&s)?.sensitive_action == "mask";
     let result = db(&s)?
         .query_row(
-            "SELECT kind,plain_text,files_json,source_app,created_at,html,rtf FROM clips WHERE id=?1",
+            "SELECT kind,plain_text,files_json,source_app,created_at,html,rtf,pinned,favorite,updated_at,use_count FROM clips WHERE id=?1",
             [id],
             |r| {
                 let files: String = r.get(2)?;
@@ -288,6 +250,10 @@ pub(crate) async fn get_preview_clip(
                     created_at: chrono::DateTime::from_timestamp(ts, 0)
                         .unwrap_or_default()
                         .to_rfc3339(),
+                    pinned: r.get::<_,i64>(7)? != 0,
+                    favorite: r.get::<_,i64>(8)? != 0,
+                    updated_at: chrono::DateTime::from_timestamp(r.get(9)?,0).unwrap_or_default().to_rfc3339(),
+                    use_count: r.get(10)?,
                     sensitive_masked: sensitive,
                 };
                 Ok((clip, files))
@@ -440,6 +406,7 @@ pub(crate) fn resize_edge_picker(
     app: AppHandle,
     edge: String,
     card_size: i64,
+    details: Option<bool>,
 ) -> Result<(), String> {
     if !["left", "right", "top", "bottom"].contains(&edge.as_str())
         || !(120..=360).contains(&card_size)
@@ -457,6 +424,7 @@ pub(crate) fn resize_edge_picker(
     let columns = prefs(&p)?.side_columns;
     let (width, height) = if matches!(edge.as_str(), "left" | "right") {
         let width = card_size as f64 * columns as f64 + 7.0 * (columns - 1) as f64 + 16.0;
+        let width = width + if details.unwrap_or(false) { 300.0 } else { 0.0 };
         (
             width.min((area.size.width as f64 / scale - 16.0).max(120.0)),
             area.size.height as f64 / scale,
@@ -486,7 +454,12 @@ pub(crate) fn resize_edge_picker(
 #[tauri::command]
 pub(crate) fn open_settings(app: AppHandle) -> Result<(), String> {
     let _ = hide_preview(app.clone());
-    let _ = hide_picker_window(&app);
+    let pinned = app
+        .try_state::<Arc<State>>()
+        .is_some_and(|state| state.picker_pinned.load(Ordering::SeqCst));
+    if !pinned {
+        let _ = hide_picker_window(&app);
+    }
     if let Some(window) = app.get_webview_window("settings") {
         window.show().map_err(err)?;
         window.set_focus().map_err(err)?;
@@ -502,6 +475,23 @@ pub(crate) fn open_settings(app: AppHandle) -> Result<(), String> {
         .center()
         .build()
         .map_err(err)?;
+    }
+    if let Some(window) = app.get_webview_window("settings") {
+        window.set_always_on_top(pinned).map_err(err)?;
+        #[cfg(target_os = "macos")]
+        if pinned {
+            app.run_on_main_thread(move || {
+                if let Ok(pointer) = window.ns_window() {
+                    // The clipboard uses the macOS status level. Keep settings
+                    // above it while the pinned panel remains visible.
+                    let native =
+                        unsafe { &*(pointer as *const tauri_nspanel::objc2_app_kit::NSWindow) };
+                    native.setLevel((tauri_nspanel::PanelLevel::Status.value() + 1) as isize);
+                }
+                let _ = window.set_focus();
+            })
+            .map_err(err)?;
+        }
     }
     Ok(())
 }

@@ -1,7 +1,8 @@
 import { Preferences } from '../types';
 
-export const applyTheme = (theme: Preferences['theme'], accent: string) => {
+export const applyTheme = (theme: Preferences['theme'], accent: string, disableAnimations = false) => {
   const root = document.documentElement;
+  root.dataset.disableAnimations = String(disableAnimations);
   root.dataset.theme = theme;
   const hex = /^#[0-9a-f]{6}$/i.test(accent) ? accent : '#3569ed';
   const rgb = [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16) / 255);
@@ -17,7 +18,14 @@ export const applyTheme = (theme: Preferences['theme'], accent: string) => {
   const vividness = saturation < 0.08 ? 0 : Math.round(Math.min(90, Math.max(45, saturation * 100)));
   const color = (value: number) => `hsl(${Math.round(hue)} ${vividness}% ${value}%)`;
   root.style.setProperty('--accent-base', hex);
-  root.style.setProperty('--accent-fill', color(30));
+  root.style.setProperty('--accent-fill', hex);
   root.style.setProperty('--accent-text-light', color(36));
   root.style.setProperty('--accent-text-dark', color(72));
 };
+
+export const animationsEnabled = () => document.documentElement.dataset.disableAnimations === 'false'
+  && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+export function animateSurface(node: Element | null) {
+  if (node && animationsEnabled() && typeof node.animate === 'function')
+    node.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, easing: 'ease-out' });
+}

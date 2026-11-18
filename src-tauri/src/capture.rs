@@ -6,7 +6,6 @@ use active_win_pos_rs::get_active_window;
 use clipboard_rs::common::RustImage;
 use clipboard_rs::{Clipboard, ClipboardContext, ClipboardHandler};
 use rusqlite::{params, OptionalExtension};
-use sha2::{Digest, Sha256};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
@@ -136,22 +135,14 @@ impl ClipboardHandler for Handler {
         {
             return;
         }
-        let mut hash = Sha256::new();
-        hash.update(kind.as_bytes());
-        hash.update(text.as_bytes());
-        if let Some(v) = &html {
-            hash.update(v.as_bytes())
-        }
-        if let Some(v) = &rtf {
-            hash.update(v.as_bytes())
-        }
-        for v in &files {
-            hash.update(v.as_bytes())
-        }
-        if let Some(v) = &image {
-            hash.update(v)
-        }
-        let fingerprint = hex::encode(hash.finalize());
+        let fingerprint = crate::fingerprint::calculate(
+            kind,
+            &text,
+            html.as_deref(),
+            rtf.as_deref(),
+            &files,
+            image.as_deref(),
+        );
         let Ok(c) = db(&self.state) else { return };
         let last: Option<String> = c
             .query_row(
@@ -166,7 +157,24 @@ impl ClipboardHandler for Handler {
             return;
         }
         let captured_at = now();
-        if c.execute("INSERT INTO clips(kind,title,plain_text,html,rtf,files_json,image_data,source_app,source_path,fingerprint,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",params![kind,title,text,html,rtf,serde_json::to_string(&files).unwrap_or_default(),image,app_name,path,fingerprint,captured_at,captured_at]).is_err(){return}
+        let image_key = match image
+            .as_deref()
+            .map(|bytes| crate::resources::store(&c, bytes))
+            .transpose()
+        {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let image_size = image.as_ref().map(|bytes| bytes.len() as i64);
+        let image_format = image
+            .as_deref()
+            .and_then(|bytes| image::guess_format(bytes).ok())
+            .map(|format| format.extensions_str()[0].to_uppercase());
+        if c.execute("INSERT INTO clips(kind,title,plain_text,html,rtf,files_json,image_key,image_size,image_format,source_app,source_path,fingerprint,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",params![kind,title,text,html,rtf,serde_json::to_string(&files).unwrap_or_default(),image_key,image_size,image_format,app_name,path,fingerprint,captured_at,captured_at]).is_err(){return}
+        crate::diagnostics::record(
+            "clipboard_captured",
+            serde_json::json!({"kind":kind,"image_bytes":image_size,"image_format":image_format}),
+        );
         drop(c);
         let _ = cleanup(&self.state);
         let _ = self.app.emit("clips-changed", ());

@@ -8,6 +8,10 @@ use std::sync::Mutex;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Preferences {
+    pub(crate) developer_mode: bool,
+    pub(crate) rules_enabled: bool,
+    pub(crate) lightweight_mode: bool,
+    pub(crate) disable_animations: bool,
     pub(crate) retention_days: i64,
     pub(crate) max_items: i64,
     pub(crate) max_storage_mb: i64,
@@ -30,6 +34,7 @@ pub(crate) struct Preferences {
     pub(crate) side_columns: i64,
     pub(crate) edge_card_size: i64,
     pub(crate) hover_preview: bool,
+    pub(crate) default_sidebar_open: bool,
     pub(crate) show_source_app_icon: bool,
     pub(crate) auto_check_updates: bool,
     pub(crate) item_max_lines: i64,
@@ -48,8 +53,12 @@ pub(crate) struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            developer_mode: false,
+            rules_enabled: true,
+            lightweight_mode: true,
+            disable_animations: false,
             retention_days: 30,
-            max_items: 10000,
+            max_items: 1000,
             max_storage_mb: 1024,
             capture_text: true,
             capture_rich: true,
@@ -70,6 +79,7 @@ impl Default for Preferences {
             side_columns: 2,
             edge_card_size: 200,
             hover_preview: false,
+            default_sidebar_open: false,
             show_source_app_icon: false,
             auto_check_updates: true,
             item_max_lines: 2,
@@ -96,6 +106,8 @@ pub(crate) struct Clip {
     pub(crate) rtf: Option<String>,
     pub(crate) files: Vec<String>,
     pub(crate) image_data: Option<String>,
+    pub(crate) image_size: Option<u64>,
+    pub(crate) image_format: Option<String>,
     pub(crate) source_app: String,
     pub(crate) source_path: String,
     pub(crate) created_at: String,
@@ -115,6 +127,10 @@ pub(crate) struct PreviewClip {
     pub(crate) source_app: String,
     pub(crate) created_at: String,
     pub(crate) sensitive_masked: bool,
+    pub(crate) pinned: bool,
+    pub(crate) favorite: bool,
+    pub(crate) updated_at: String,
+    pub(crate) use_count: i64,
 }
 pub(crate) struct State {
     pub(crate) db: Mutex<Connection>,
@@ -146,4 +162,5 @@ pub(crate) struct PickerOpening {
     pub(crate) edge: String,
     pub(crate) width: f64,
     pub(crate) height: f64,
+    pub(crate) sidebar_open: bool,
 }

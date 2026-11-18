@@ -1,0 +1,16 @@
+[package]
+name = "cpaste-native-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSGeometry", "NSNotification", "NSObject", "NSString"] }
+objc2-app-kit = { version = "0.3", default-features = true, features = ["std", "NSApplication", "NSResponder", "NSWindow", "NSPanel", "NSView", "NSControl", "NSTextField", "NSSearchField", "NSTableView", "NSTableColumn", "NSScrollView", "NSCell", "NSTextFieldCell", "NSFont", "NSColor", "NSGraphics", "NSScreen", "NSEvent", "NSRunningApplication"] }
+dispatch2 = "0.3"
+global-hotkey = "0.8"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde_json = "1"
+jieba-rs = { version = "0.11", default-features = false }
+regex = "1"

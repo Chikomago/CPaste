@@ -2,30 +2,24 @@
 
 <p align="center"><img src="assets/branding/logo.svg" width="96" alt="CPaste" /></p>
 
-Windows 和 macOS 本机剪贴板记录应用。使用 Tauri 2、React、Rust 和 SQLite。
+使用 React、Rust 和 SQLite 的 Windows 和 macOS 本机剪贴板记录应用。
 
-本项目使用 Codex 进行代码开发，本人负责提出需求，并提供产品、交互与技术方案的决策。
-
-支持剪贴板分词和编辑，支持设置使用上下左右侧边栏和常规跟随光标视图。
+完全本地无任何联网权限
 
 
-下载安装包：[GitHub Releases](https://github.com/Chikomago/CPaste/releases/latest)。macOS 支持 Apple Silicon 和 Intel，Windows 支持 x64。
+[下载安装包](https://github.com/Chikomago/CPaste/releases/latest)
 
 ## 功能
 
-- 保存文本、富文本、图片和文件记录，支持搜索、排序、编辑、置顶和收藏。
-- 使用快捷键呼出面板，支持居中、跟随光标及上下左右四侧布局；底部左侧显示历史总条数。
-- 支持纯文本、文件路径粘贴，来源应用黑名单、敏感内容遮盖，以及备份与恢复。
-- “设置 → 关于”提供作者、项目地址、协议与更新检查，支持下载并安装签名验证的更新包。
-- 图片处理、记录操作、应用扫描和备份恢复在后台执行；剪贴板操作独立排队，减少界面卡顿。
+- 基础：保存文本、富文本、图片和文件记录，支持搜索、排序、编辑、置顶和收藏。
+- 侧栏：使用快捷键呼出面板，支持居中、跟随光标。
+- 设置：支持纯文本、文件路径粘贴，来源应用黑名单、敏感内容遮盖，以及备份与恢复。
+- 分词：支持 **UTF-8 编码的 `.txt` 和 `.dict` 文本文件**，可使用每行一个词或 jieba 格式：
+- 规则：Rust层内嵌 QuickJS 处理脚本，你也可以自行编写js来达成你想要的规则。
 
-## 分词
 
-支持 **UTF-8 编码的 `.txt` 和 `.dict` 文本文件**，可使用每行一个词或 jieba 格式：
 
-```text
-自定义词语 100 nz
-```
+```功能功能功能
 
 ## 开发
 
@@ -45,10 +39,6 @@ pnpm tauri dev
 ## 权限
 
 macOS 首次直接粘贴可能需要在“系统设置 → 隐私与安全性 → 辅助功能”中允许 CPaste 控制键盘；
-
-## 感谢
-
-CPaste 的界面与交互设计参考了 [EcoPaste](https://github.com/EcoPasteHub/EcoPaste)，感谢 EcoPaste 项目提供的设计启发。
 
 
 ## 协议

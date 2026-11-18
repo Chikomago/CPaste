@@ -1,0 +1,442 @@
+[
+  {
+    "id": "trim",
+    "text": "  hello\n\n\nworld  ",
+    "expected": "hello\n\n\nworld"
+  },
+  {
+    "id": "trim",
+    "text": "一、准备\n二：执行\n③完成",
+    "expected": "一、准备\n二：执行\n③完成"
+  },
+  {
+    "id": "trim",
+    "text": "第一句。第二句！版本3.14正常。",
+    "expected": "第一句。第二句！版本3.14正常。"
+  },
+  {
+    "id": "trim",
+    "text": "测试CPaste,内容!",
+    "expected": "测试CPaste,内容!"
+  },
+  {
+    "id": "trim",
+    "text": "http删s://githu除b.c我om/a",
+    "expected": "http删s://githu除b.c我om/a"
+  },
+  {
+    "id": "trim",
+    "text": "说明：https://example.com/a?x=1中文other.test/a_2。",
+    "expected": "说明：https://example.com/a?x=1中文other.test/a_2。"
+  },
+  {
+    "id": "trim",
+    "text": "`代码abc` https://example.com/a?x=1",
+    "expected": "`代码abc` https://example.com/a?x=1"
+  },
+  {
+    "id": "trim",
+    "text": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本",
+    "expected": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本"
+  },
+  {
+    "id": "blank-lines",
+    "text": "  hello\n\n\nworld  ",
+    "expected": "  hello\n\nworld  "
+  },
+  {
+    "id": "blank-lines",
+    "text": "一、准备\n二：执行\n③完成",
+    "expected": "一、准备\n二：执行\n③完成"
+  },
+  {
+    "id": "blank-lines",
+    "text": "第一句。第二句！版本3.14正常。",
+    "expected": "第一句。第二句！版本3.14正常。"
+  },
+  {
+    "id": "blank-lines",
+    "text": "测试CPaste,内容!",
+    "expected": "测试CPaste,内容!"
+  },
+  {
+    "id": "blank-lines",
+    "text": "http删s://githu除b.c我om/a",
+    "expected": "http删s://githu除b.c我om/a"
+  },
+  {
+    "id": "blank-lines",
+    "text": "说明：https://example.com/a?x=1中文other.test/a_2。",
+    "expected": "说明：https://example.com/a?x=1中文other.test/a_2。"
+  },
+  {
+    "id": "blank-lines",
+    "text": "`代码abc` https://example.com/a?x=1",
+    "expected": "`代码abc` https://example.com/a?x=1"
+  },
+  {
+    "id": "blank-lines",
+    "text": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本",
+    "expected": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本"
+  },
+  {
+    "id": "one-line",
+    "text": "  hello\n\n\nworld  ",
+    "expected": "  helloworld  "
+  },
+  {
+    "id": "one-line",
+    "text": "一、准备\n二：执行\n③完成",
+    "expected": "一、准备二：执行③完成"
+  },
+  {
+    "id": "one-line",
+    "text": "第一句。第二句！版本3.14正常。",
+    "expected": "第一句。第二句！版本3.14正常。"
+  },
+  {
+    "id": "one-line",
+    "text": "测试CPaste,内容!",
+    "expected": "测试CPaste,内容!"
+  },
+  {
+    "id": "one-line",
+    "text": "http删s://githu除b.c我om/a",
+    "expected": "http删s://githu除b.c我om/a"
+  },
+  {
+    "id": "one-line",
+    "text": "说明：https://example.com/a?x=1中文other.test/a_2。",
+    "expected": "说明：https://example.com/a?x=1中文other.test/a_2。"
+  },
+  {
+    "id": "one-line",
+    "text": "`代码abc` https://example.com/a?x=1",
+    "expected": "`代码abc` https://example.com/a?x=1"
+  },
+  {
+    "id": "one-line",
+    "text": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本",
+    "expected": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本"
+  },
+  {
+    "id": "line-numbers",
+    "text": "  hello\n\n\nworld  ",
+    "expected": "  hello\n\n\nworld  "
+  },
+  {
+    "id": "line-numbers",
+    "text": "一、准备\n二：执行\n③完成",
+    "expected": "准备\n执行\n完成"
+  },
+  {
+    "id": "line-numbers",
+    "text": "第一句。第二句！版本3.14正常。",
+    "expected": "第一句。第二句！版本3.14正常。"
+  },
+  {
+    "id": "line-numbers",
+    "text": "测试CPaste,内容!",
+    "expected": "测试CPaste,内容!"
+  },
+  {
+    "id": "line-numbers",
+    "text": "http删s://githu除b.c我om/a",
+    "expected": "http删s://githu除b.c我om/a"
+  },
+  {
+    "id": "line-numbers",
+    "text": "说明：https://example.com/a?x=1中文other.test/a_2。",
+    "expected": "说明：https://example.com/a?x=1中文other.test/a_2。"
+  },
+  {
+    "id": "line-numbers",
+    "text": "`代码abc` https://example.com/a?x=1",
+    "expected": "`代码abc` https://example.com/a?x=1"
+  },
+  {
+    "id": "line-numbers",
+    "text": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本",
+    "expected": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本"
+  },
+  {
+    "id": "auto-lines",
+    "text": "  hello\n\n\nworld  ",
+    "expected": "  hello\n\n\nworld"
+  },
+  {
+    "id": "auto-lines",
+    "text": "一、准备\n二：执行\n③完成",
+    "expected": "一、准备\n二：执行\n③完成"
+  },
+  {
+    "id": "auto-lines",
+    "text": "第一句。第二句！版本3.14正常。",
+    "expected": "第一句。\n第二句！\n版本3.14正常。"
+  },
+  {
+    "id": "auto-lines",
+    "text": "测试CPaste,内容!",
+    "expected": "测试CPaste,内容!"
+  },
+  {
+    "id": "auto-lines",
+    "text": "http删s://githu除b.c我om/a",
+    "expected": "http删s://githu除b.c我om/a"
+  },
+  {
+    "id": "auto-lines",
+    "text": "说明：https://example.com/a?x=1中文other.test/a_2。",
+    "expected": "说明：https://example.com/a?x=1中文other.test/a_2。"
+  },
+  {
+    "id": "auto-lines",
+    "text": "`代码abc` https://example.com/a?x=1",
+    "expected": "`代码abc` https://example.com/a?x=1"
+  },
+  {
+    "id": "auto-lines",
+    "text": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本",
+    "expected": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文\n文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长\n的中文文本很长的中文文本很长的中文文本"
+  },
+  {
+    "id": "spacing",
+    "text": "  hello\n\n\nworld  ",
+    "expected": "  hello\n\n\nworld  "
+  },
+  {
+    "id": "spacing",
+    "text": "一、准备\n二：执行\n③完成",
+    "expected": "一、准备\n二：执行\n③完成"
+  },
+  {
+    "id": "spacing",
+    "text": "第一句。第二句！版本3.14正常。",
+    "expected": "第一句。第二句！版本 3.14 正常。"
+  },
+  {
+    "id": "spacing",
+    "text": "测试CPaste,内容!",
+    "expected": "测试 CPaste,内容!"
+  },
+  {
+    "id": "spacing",
+    "text": "http删s://githu除b.c我om/a",
+    "expected": "http 删 s://githu 除 b.c 我 om/a"
+  },
+  {
+    "id": "spacing",
+    "text": "说明：https://example.com/a?x=1中文other.test/a_2。",
+    "expected": "说明：https://example.com/a?x=1中文other.test/a_2。"
+  },
+  {
+    "id": "spacing",
+    "text": "`代码abc` https://example.com/a?x=1",
+    "expected": "`代码abc` https://example.com/a?x=1"
+  },
+  {
+    "id": "spacing",
+    "text": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本",
+    "expected": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本"
+  },
+  {
+    "id": "toggle-width",
+    "text": "  hello\n\n\nworld  ",
+    "expected": "  hello\n\n\nworld  "
+  },
+  {
+    "id": "toggle-width",
+    "text": "一、准备\n二：执行\n③完成",
+    "expected": "一、准备\n二:执行\n③完成"
+  },
+  {
+    "id": "toggle-width",
+    "text": "第一句。第二句！版本3.14正常。",
+    "expected": "第一句.第二句!版本3.14正常."
+  },
+  {
+    "id": "toggle-width",
+    "text": "测试CPaste,内容!",
+    "expected": "测试CPaste，内容！"
+  },
+  {
+    "id": "toggle-width",
+    "text": "http删s://githu除b.c我om/a",
+    "expected": "http删s：／／githu除b。c我om／a"
+  },
+  {
+    "id": "toggle-width",
+    "text": "说明：https://example.com/a?x=1中文other.test/a_2。",
+    "expected": "说明:undefined"
+  },
+  {
+    "id": "toggle-width",
+    "text": "`代码abc` https://example.com/a?x=1",
+    "expected": "`代码abc` https://example.com/a?x=1"
+  },
+  {
+    "id": "toggle-width",
+    "text": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本",
+    "expected": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本"
+  },
+  {
+    "id": "ordered-list",
+    "text": "  hello\n\n\nworld  ",
+    "expected": "1. hello\n\n\n2. world"
+  },
+  {
+    "id": "ordered-list",
+    "text": "一、准备\n二：执行\n③完成",
+    "expected": "1. 一、准备\n2. 二：执行\n3. ③完成"
+  },
+  {
+    "id": "ordered-list",
+    "text": "第一句。第二句！版本3.14正常。",
+    "expected": "1. 第一句。第二句！版本3.14正常。"
+  },
+  {
+    "id": "ordered-list",
+    "text": "测试CPaste,内容!",
+    "expected": "1. 测试CPaste,内容!"
+  },
+  {
+    "id": "ordered-list",
+    "text": "http删s://githu除b.c我om/a",
+    "expected": "1. http删s://githu除b.c我om/a"
+  },
+  {
+    "id": "ordered-list",
+    "text": "说明：https://example.com/a?x=1中文other.test/a_2。",
+    "expected": "1. 说明：https://example.com/a?x=1中文other.test/a_2。"
+  },
+  {
+    "id": "ordered-list",
+    "text": "`代码abc` https://example.com/a?x=1",
+    "expected": "1. `代码abc` https://example.com/a?x=1"
+  },
+  {
+    "id": "ordered-list",
+    "text": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本",
+    "expected": "1. 很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本"
+  },
+  {
+    "id": "unordered-list",
+    "text": "  hello\n\n\nworld  ",
+    "expected": "- hello\n\n\n- world"
+  },
+  {
+    "id": "unordered-list",
+    "text": "一、准备\n二：执行\n③完成",
+    "expected": "- 一、准备\n- 二：执行\n- ③完成"
+  },
+  {
+    "id": "unordered-list",
+    "text": "第一句。第二句！版本3.14正常。",
+    "expected": "- 第一句。第二句！版本3.14正常。"
+  },
+  {
+    "id": "unordered-list",
+    "text": "测试CPaste,内容!",
+    "expected": "- 测试CPaste,内容!"
+  },
+  {
+    "id": "unordered-list",
+    "text": "http删s://githu除b.c我om/a",
+    "expected": "- http删s://githu除b.c我om/a"
+  },
+  {
+    "id": "unordered-list",
+    "text": "说明：https://example.com/a?x=1中文other.test/a_2。",
+    "expected": "- 说明：https://example.com/a?x=1中文other.test/a_2。"
+  },
+  {
+    "id": "unordered-list",
+    "text": "`代码abc` https://example.com/a?x=1",
+    "expected": "- `代码abc` https://example.com/a?x=1"
+  },
+  {
+    "id": "unordered-list",
+    "text": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本",
+    "expected": "- 很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本"
+  },
+  {
+    "id": "clean-links",
+    "text": "  hello\n\n\nworld  ",
+    "expected": "  hello\n\n\nworld  "
+  },
+  {
+    "id": "clean-links",
+    "text": "一、准备\n二：执行\n③完成",
+    "expected": "一、准备\n二：执行\n③完成"
+  },
+  {
+    "id": "clean-links",
+    "text": "第一句。第二句！版本3.14正常。",
+    "expected": "第一句。第二句！版本3.14正常。"
+  },
+  {
+    "id": "clean-links",
+    "text": "测试CPaste,内容!",
+    "expected": "测试CPaste,内容!"
+  },
+  {
+    "id": "clean-links",
+    "text": "http删s://githu除b.c我om/a",
+    "expected": "https://github.com/a"
+  },
+  {
+    "id": "clean-links",
+    "text": "说明：https://example.com/a?x=1中文other.test/a_2。",
+    "expected": "说明：https://example.com/a?x=1other.test/a_2。"
+  },
+  {
+    "id": "clean-links",
+    "text": "`代码abc` https://example.com/a?x=1",
+    "expected": "`代码abc` https://example.com/a?x=1"
+  },
+  {
+    "id": "clean-links",
+    "text": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本",
+    "expected": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本"
+  },
+  {
+    "id": "extract-links",
+    "text": "  hello\n\n\nworld  ",
+    "expected": ""
+  },
+  {
+    "id": "extract-links",
+    "text": "一、准备\n二：执行\n③完成",
+    "expected": ""
+  },
+  {
+    "id": "extract-links",
+    "text": "第一句。第二句！版本3.14正常。",
+    "expected": ""
+  },
+  {
+    "id": "extract-links",
+    "text": "测试CPaste,内容!",
+    "expected": ""
+  },
+  {
+    "id": "extract-links",
+    "text": "http删s://githu除b.c我om/a",
+    "expected": "om/a"
+  },
+  {
+    "id": "extract-links",
+    "text": "说明：https://example.com/a?x=1中文other.test/a_2。",
+    "expected": "https://example.com/a?x=1\nother.test/a_2"
+  },
+  {
+    "id": "extract-links",
+    "text": "`代码abc` https://example.com/a?x=1",
+    "expected": "https://example.com/a?x=1"
+  },
+  {
+    "id": "extract-links",
+    "text": "很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本很长的中文文本",
+    "expected": ""
+  }
+]

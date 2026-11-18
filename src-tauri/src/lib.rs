@@ -1,3 +1,5 @@
+mod js_rules;
+mod js_runtime;
 use crate::capture::Handler;
 use crate::database::{load_prefs, open_db};
 use crate::menus::build_tray_menu;
@@ -28,15 +30,22 @@ mod backup;
 mod capture;
 mod clipboard;
 mod clips;
+mod content_tools;
 mod database;
+mod diagnostics;
+mod fingerprint;
+mod image_scripts;
+mod media_tools;
 mod menus;
 mod models;
 mod permissions;
 mod preferences;
 mod privacy;
+mod resources;
 mod segmentation;
 mod shortcuts;
 mod state;
+mod storage;
 mod updates;
 mod windows;
 
@@ -111,6 +120,7 @@ pub fn run() {
                 )?;
             }
             let p = load_prefs(&c);
+            diagnostics::configure(app.handle(), p.developer_mode)?;
             let s = Arc::new(State {
                 db: Mutex::new(c),
                 prefs: Mutex::new(p.clone()),
@@ -257,55 +267,81 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![
-            updates::get_update_status,
-            updates::check_for_updates,
-            updates::install_update,
-            updates::restart_after_update,
-            updates::open_project_link,
-            clips::list_clips,
-            clips::get_clip_image,
-            clips::get_clip_thumbnail,
-            clips::get_app_icon,
-            windows::get_preview_clip,
-            windows::show_preview,
-            windows::resize_preview,
-            windows::hide_preview,
-            preferences::get_preferences,
-            permissions::accessibility_status,
-            permissions::full_disk_access_status,
-            permissions::open_system_permission,
-            windows::set_picker_pinned,
-            preferences::save_preferences,
-            database::get_database_size,
-            applications::list_installed_apps,
-            backup::backup_database,
-            backup::choose_restore_file,
-            backup::restore_database,
-            clipboard::toggle_pin,
-            clipboard::toggle_favorite,
-            clipboard::delete_clip,
-            clipboard::clear_clips,
-            clipboard::edit_clip,
-            clipboard::copy_clip,
-            clipboard::copy_plain_clip,
-            clipboard::copy_original_clip,
-            clipboard::paste_clip,
-            clipboard::paste_text_fragment,
-            segmentation::segment_text,
-            segmentation::import_dictionary,
-            segmentation::get_dictionary_info,
-            segmentation::get_downloaded_dictionary_info,
-            segmentation::download_dictionary,
-            clipboard::paste_plain_clip,
-            clipboard::paste_original_clip,
-            menus::show_clip_context_menu,
-            windows::set_picker_editing,
-            windows::hide_picker,
-            windows::resize_edge_picker,
-            windows::reveal_picker,
-            windows::open_settings
-        ])
+        .invoke_handler(move |invoke| {
+            let command = invoke.message.command();
+            if command != "record_diagnostic" {
+                diagnostics::record("command", serde_json::json!({"name":command}));
+            }
+            let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
+                diagnostics::record_diagnostic,
+                diagnostics::export_diagnostics,
+                updates::get_update_status,
+                updates::check_for_updates,
+                updates::install_update,
+                updates::restart_after_update,
+                updates::open_project_link,
+                clips::list_clips,
+                js_rules::get_js_rules,
+                js_rules::backup_rules,
+                js_rules::choose_rules_backup,
+                js_rules::restore_rules,
+                js_runtime::execute_js_rule,
+                js_rules::save_js_rule,
+                js_rules::delete_js_rule,
+                clips::get_clip_image_path,
+                clips::get_clip_thumbnail_path,
+                clips::get_app_icon_path,
+                windows::get_preview_clip,
+                windows::show_preview,
+                windows::resize_preview,
+                windows::hide_preview,
+                preferences::get_preferences,
+                permissions::accessibility_status,
+                permissions::full_disk_access_status,
+                permissions::open_system_permission,
+                windows::set_picker_pinned,
+                preferences::save_preferences,
+                database::get_database_size,
+                storage::get_storage_breakdown,
+                storage::clear_storage_category,
+                applications::list_installed_apps,
+                backup::backup_database,
+                backup::choose_restore_file,
+                backup::restore_database,
+                clipboard::toggle_pin,
+                clipboard::toggle_favorite,
+                clipboard::delete_clip,
+                clipboard::clear_clips,
+                clipboard::edit_clip,
+                clipboard::copy_clip,
+                clipboard::copy_plain_clip,
+                clipboard::copy_original_clip,
+                clipboard::paste_clip,
+                clipboard::paste_text_fragment,
+                content_tools::get_transform_source,
+                content_tools::save_image,
+                content_tools::open_image,
+                media_tools::image_history,
+                media_tools::execute_media_rule,
+                media_tools::file_tool,
+                segmentation::segment_text,
+                segmentation::import_dictionary,
+                segmentation::get_dictionary_info,
+                segmentation::get_downloaded_dictionary_info,
+                segmentation::download_dictionary,
+                clipboard::paste_plain_clip,
+                clipboard::paste_original_clip,
+                menus::show_clip_context_menu,
+                menus::show_rule_menu,
+                menus::hide_rule_menu,
+                windows::set_picker_editing,
+                windows::hide_picker,
+                windows::resize_edge_picker,
+                windows::reveal_picker,
+                windows::open_settings
+            ];
+            handler(invoke)
+        })
         .run(tauri::generate_context!())
         .expect("CPaste failed to start")
 }

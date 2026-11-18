@@ -1,6 +1,6 @@
 use crate::capture::title;
 use crate::models::{Preferences, State};
-use crate::privacy::contains_sensitive;
+use crate::privacy::{contains_sensitive, mask_sensitive};
 use crate::state::{db, err, now, prefs};
 use crate::windows::{activate_target, hide_picker_window, reveal_picker};
 use active_win_pos_rs::get_active_window;
@@ -8,7 +8,6 @@ use clipboard_rs::common::RustImage;
 use clipboard_rs::{Clipboard, ClipboardContent, ClipboardContext, RustImageData};
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use rusqlite::{params, OptionalExtension};
-use sha2::{Digest, Sha256};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread;
@@ -18,7 +17,7 @@ use tokio::sync::Semaphore;
 
 static CLIPBOARD_OPERATIONS: Semaphore = Semaphore::const_new(1);
 
-async fn clipboard_task<T: Send + 'static>(
+pub(crate) async fn clipboard_task<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
     let permit = CLIPBOARD_OPERATIONS.acquire().await.map_err(err)?;
@@ -71,34 +70,60 @@ mod worker_tests {
 }
 
 #[tauri::command]
-pub(crate) async fn toggle_pin(
-    app: AppHandle,
+pub(crate) async fn toggle_pin<R: tauri::Runtime>(
+    app: AppHandle<R>,
     s: tauri::State<'_, Arc<State>>,
     id: i64,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let state = s.inner().clone();
     crate::background::write(move || {
         let s = state;
-        db(&s)?
-            .execute("UPDATE clips SET pinned=1-pinned WHERE id=?1", [id])
-            .map_err(err)?;
-        app.emit("clips-changed", ()).map_err(err)
+        let value = {
+            let connection = db(&s)?;
+            connection
+                .execute("UPDATE clips SET pinned=1-pinned WHERE id=?1", [id])
+                .map_err(err)?;
+            connection
+                .query_row("SELECT pinned FROM clips WHERE id=?1", [id], |row| {
+                    row.get::<_, bool>(0)
+                })
+                .map_err(err)?
+        };
+        app.emit(
+            "clips-changed",
+            serde_json::json!({ "updated_id": id, "pinned": value }),
+        )
+        .map_err(err)?;
+        Ok(value)
     })
     .await
 }
 #[tauri::command]
-pub(crate) async fn toggle_favorite(
-    app: AppHandle,
+pub(crate) async fn toggle_favorite<R: tauri::Runtime>(
+    app: AppHandle<R>,
     s: tauri::State<'_, Arc<State>>,
     id: i64,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let state = s.inner().clone();
     crate::background::write(move || {
         let s = state;
-        db(&s)?
-            .execute("UPDATE clips SET favorite=1-favorite WHERE id=?1", [id])
-            .map_err(err)?;
-        app.emit("clips-changed", ()).map_err(err)
+        let value = {
+            let connection = db(&s)?;
+            connection
+                .execute("UPDATE clips SET favorite=1-favorite WHERE id=?1", [id])
+                .map_err(err)?;
+            connection
+                .query_row("SELECT favorite FROM clips WHERE id=?1", [id], |row| {
+                    row.get::<_, bool>(0)
+                })
+                .map_err(err)?
+        };
+        app.emit(
+            "clips-changed",
+            serde_json::json!({ "updated_id": id, "favorite": value }),
+        )
+        .map_err(err)?;
+        Ok(value)
     })
     .await
 }
@@ -114,31 +139,59 @@ pub(crate) async fn delete_clip(
         db(&s)?
             .execute("DELETE FROM clips WHERE id=?1", [id])
             .map_err(err)?;
+        let _ = crate::resources::collect_unused(&*db(&s)?);
+        crate::content_tools::remove_external_preview(&app, Some(id));
         app.emit("clips-changed", serde_json::json!({ "deleted_id": id }))
             .map_err(err)
     })
     .await
 }
+pub(crate) fn delete_clip_scope(c: &mut rusqlite::Connection, ids: &[i64]) -> Result<(), String> {
+    let transaction = c.transaction().map_err(err)?;
+    {
+        let mut statement = transaction
+            .prepare("DELETE FROM clips WHERE id=?1")
+            .map_err(err)?;
+        for id in ids {
+            statement.execute([id]).map_err(err)?;
+        }
+    }
+    transaction.commit().map_err(err)
+}
 #[tauri::command]
 pub(crate) async fn clear_clips(
     app: AppHandle,
     s: tauri::State<'_, Arc<State>>,
+    ids: Option<Vec<i64>>,
 ) -> Result<(), String> {
     let state = s.inner().clone();
     crate::background::write(move || {
-        let s = state;
-        db(&s)?.execute("DELETE FROM clips", []).map_err(err)?;
-        app.emit("clips-changed", ()).map_err(err)
+        if let Some(ids) = ids {
+            delete_clip_scope(&mut *db(&state)?, &ids)?;
+            let _ = crate::resources::collect_unused(&*db(&state)?);
+            crate::content_tools::remove_external_preview_scope(&app, &ids);
+            app.emit("clips-changed", serde_json::json!({"deleted_ids":ids}))
+                .map_err(err)
+        } else {
+            db(&state)?.execute("DELETE FROM clips", []).map_err(err)?;
+            let _ = crate::resources::collect_unused(&*db(&state)?);
+            crate::content_tools::remove_external_preview(&app, None);
+            app.emit("clips-changed", ()).map_err(err)
+        }
     })
     .await
 }
+
 #[tauri::command]
-pub(crate) async fn edit_clip(
-    app: AppHandle,
+pub(crate) async fn edit_clip<R: tauri::Runtime>(
+    app: AppHandle<R>,
     s: tauri::State<'_, Arc<State>>,
     id: i64,
     content: String,
-) -> Result<(), String> {
+    formatted_html: Option<String>,
+    formatted_rtf: Option<String>,
+    expected_source: Option<crate::content_tools::TransformSource>,
+) -> Result<serde_json::Value, String> {
     let state = s.inner().clone();
     crate::background::write(move || {
         let s = state;
@@ -148,6 +201,7 @@ pub(crate) async fn edit_clip(
     if content.len() > 1_000_000 {
         return Err("内容不能超过 1 MB".into());
     }
+    if formatted_html.as_ref().is_some_and(|value| value.len() > 4_000_000) || formatted_rtf.as_ref().is_some_and(|value| value.len() > 4_000_000) { return Err("处理结果过大".into()); }
     let mask = prefs(&s)?.sensitive_action == "mask";
     let c = db(&s)?;
     let (kind, old_text, html, rtf, files_json): (
@@ -168,6 +222,9 @@ pub(crate) async fn edit_clip(
     if kind != "text" && kind != "rich" {
         return Err("只有文本记录可以编辑".into());
     }
+    if let Some(expected) = expected_source {
+        if expected.text != old_text || expected.html != html || expected.rtf != rtf { return Err("记录内容已变化，请重新打开快捷处理".into()); }
+    }
     if mask
         && contains_sensitive(
             &old_text,
@@ -178,44 +235,56 @@ pub(crate) async fn edit_clip(
     {
         return Err("敏感内容已遮盖，无法编辑".into());
     }
-    let mut hash = Sha256::new();
-    hash.update(b"text");
-    hash.update(content.as_bytes());
-    let fingerprint = hex::encode(hash.finalize());
-    c.execute("UPDATE clips SET kind='text',title=?1,plain_text=?2,html=NULL,rtf=NULL,fingerprint=?3,updated_at=?4 WHERE id=?5", params![title(&content, "纯文本"), content, fingerprint, now(), id]).map_err(err)?;
+    let new_kind = if formatted_html.is_some() || formatted_rtf.is_some() { "rich" } else { "text" };
+    let fingerprint=crate::fingerprint::calculate(new_kind,&content,formatted_html.as_deref(),formatted_rtf.as_deref(),&[],None);
+    let updated_at=now();
+    c.execute("UPDATE clips SET kind=?6,title=?1,plain_text=?2,html=?7,rtf=?8,fingerprint=?3,updated_at=?4 WHERE id=?5", params![title(&content, if new_kind == "rich" { "富文本" } else { "纯文本" }), content, fingerprint, updated_at, id, new_kind, formatted_html, formatted_rtf]).map_err(err)?;
     drop(c);
-    app.emit("clips-changed", ()).map_err(err)
+    let sensitive = mask && contains_sensitive(&content,formatted_html.as_deref(),formatted_rtf.as_deref(),&[]);
+    let patch=serde_json::json!({"updated_id":id,"kind":new_kind,"title":if sensitive { "******".to_owned() } else { title(&content,if new_kind=="rich" {"富文本"} else {"纯文本"}) },"plain_text":if sensitive {mask_sensitive(&content)} else {content},"sensitive_masked":sensitive,"updated_at":chrono::DateTime::from_timestamp(updated_at,0).unwrap_or_default().to_rfc3339()});
+    app.emit("clips-changed", &patch).map_err(err)?;
+    Ok(patch)
 
     }).await
 }
 pub(crate) fn mark_clip_used(app: &AppHandle, s: &State, id: i64) -> Result<(), String> {
-    db(s)?
-        .execute("UPDATE clips SET use_count=use_count+1 WHERE id=?1", [id])
+    let count: i64 = db(s)?
+        .query_row(
+            "UPDATE clips SET use_count=use_count+1 WHERE id=?1 RETURNING use_count",
+            [id],
+            |row| row.get(0),
+        )
         .map_err(err)?;
-    app.emit("clips-changed", ()).map_err(err)
+    app.emit(
+        "clips-changed",
+        serde_json::json!({"updated_id":id,"use_count":count}),
+    )
+    .map_err(err)
 }
 pub(crate) fn clipboard_image_content(bytes: Vec<u8>) -> Result<ClipboardContent, String> {
-    // Captured images are stored as PNG. The macOS pasteboard accepts those
-    // exact bytes, so pasting must not decode and re-encode the full image.
+    // Preserve encoded PNG/JPEG bytes on macOS instead of decoding full pixels.
     #[cfg(target_os = "macos")]
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         return Ok(ClipboardContent::Other("public.png".into(), bytes));
+    }
+    #[cfg(target_os = "macos")]
+    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        return Ok(ClipboardContent::Other("public.jpeg".into(), bytes));
     }
     RustImageData::from_bytes(&bytes)
         .map(ClipboardContent::Image)
         .map_err(err)
 }
 pub(crate) fn restore(s: &State, id: i64) -> Result<(), String> {
-    let (kind, text, html, rtf, files, image): (
+    let (kind, text, html, rtf, files): (
         String,
         String,
         Option<String>,
         Option<String>,
         Vec<String>,
-        Option<Vec<u8>>,
     ) = db(s)?
         .query_row(
-            "SELECT kind,plain_text,html,rtf,files_json,image_data FROM clips WHERE id=?1",
+            "SELECT kind,plain_text,html,rtf,files_json FROM clips WHERE id=?1",
             [id],
             |r| {
                 let f: String = r.get(4)?;
@@ -225,7 +294,6 @@ pub(crate) fn restore(s: &State, id: i64) -> Result<(), String> {
                     r.get(2)?,
                     r.get(3)?,
                     serde_json::from_str(&f).unwrap_or_default(),
-                    r.get(5)?,
                 ))
             },
         )
@@ -233,7 +301,9 @@ pub(crate) fn restore(s: &State, id: i64) -> Result<(), String> {
         .map_err(err)?
         .ok_or("记录已不存在")?;
     let image = if kind == "image" {
-        Some(clipboard_image_content(image.ok_or("图片数据不存在")?)?)
+        Some(clipboard_image_content(
+            crate::clips::clip_image_bytes(s, id)?.ok_or("图片数据不存在")?,
+        )?)
     } else {
         None
     };
@@ -346,7 +416,7 @@ pub(crate) fn should_copy_plain(kind: &str, p: &Preferences, override_plain: Opt
         _ => false,
     })
 }
-fn validate_fragment(s: &State, id: i64, text: &str) -> Result<(), String> {
+pub(crate) fn validate_fragment(s: &State, id: i64, text: &str) -> Result<(), String> {
     if text.trim().is_empty() || text.len() > 1_000_000 {
         return Err("请选择词块，组合内容不能超过 1 MB".into());
     }
@@ -417,7 +487,7 @@ pub(crate) async fn paste_text_fragment(
     let state = s.inner().clone();
     clipboard_task(move || {
         validate_fragment(&state, id, &text)?;
-        paste_with_mode(app, &state, id, Some(true), &edge, Some(&text))
+        paste_with_mode(app, &state, id, Some(true), &edge, Some((&text, None)))
     })
     .await
 }
@@ -523,7 +593,7 @@ pub(crate) fn paste_with_mode(
     id: i64,
     override_plain: Option<bool>,
     edge: &str,
-    fragment: Option<&str>,
+    fragment: Option<(&str, Option<&str>)>,
 ) -> Result<String, String> {
     let target = s.target_pid.load(Ordering::SeqCst);
     let kind: String = db(s)?
@@ -531,8 +601,8 @@ pub(crate) fn paste_with_mode(
         .map_err(err)?;
     let preferences = prefs(s)?;
     let plain = should_paste_plain(&kind, &preferences, override_plain);
-    if let Some(text) = fragment {
-        write_plain_text(s, text)?;
+    if let Some((text, html)) = fragment {
+        crate::content_tools::write_result(s, text, html)?;
     } else if plain {
         restore_plain(s, id)?;
     } else {
@@ -584,4 +654,35 @@ pub(crate) fn paste_with_mode(
         let _ = reveal_picker(app.clone(), edge.to_string());
     }
     result.map(|_| "pasted".into())
+}
+
+#[cfg(test)]
+mod clear_scope_tests {
+    use super::delete_clip_scope;
+    #[test]
+    fn scope_delete_is_atomic_and_empty_scope_never_clears_everything() {
+        let mut c = rusqlite::Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE clips(id INTEGER PRIMARY KEY,pinned INTEGER,favorite INTEGER);INSERT INTO clips VALUES(1,1,1),(2,0,0),(3,0,1);").unwrap();
+        delete_clip_scope(&mut c, &[]).unwrap();
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM clips", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+        c.execute_batch("CREATE TRIGGER block_delete BEFORE DELETE ON clips WHEN OLD.id=3 BEGIN SELECT RAISE(ABORT,'blocked');END;").unwrap();
+        assert!(delete_clip_scope(&mut c, &[1, 3]).is_err());
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM clips", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+        c.execute_batch("DROP TRIGGER block_delete;").unwrap();
+        delete_clip_scope(&mut c, &[1, 3, 999]).unwrap();
+        assert_eq!(
+            c.query_row("SELECT GROUP_CONCAT(id) FROM clips", [], |r| r
+                .get::<_, String>(0))
+                .unwrap(),
+            "2"
+        );
+    }
 }

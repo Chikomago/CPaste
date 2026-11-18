@@ -1,0 +1,58 @@
+[
+  {
+    "id": "image:rotate_left",
+    "name": "向左旋转 90°",
+    "code": "function transform(pixels) {\n  const { width, height, data: source } = pixels;\n  const data = new Uint8ClampedArray(source.length);\n  for (let y = 0; y < height; y++) {\n    for (let x = 0; x < width; x++) {\n      const from = (y * width + x) * 4;\n      const to = ((width - 1 - x) * height + y) * 4;\n      data[to] = source[from];\n      data[to + 1] = source[from + 1];\n      data[to + 2] = source[from + 2];\n      data[to + 3] = source[from + 3];\n    }\n  }\n  return { width: height, height: width, data };\n}",
+    "target": "image",
+    "kind": "js",
+    "enabled": true
+  },
+  {
+    "id": "image:rotate_right",
+    "name": "向右旋转 90°",
+    "code": "function transform(pixels) {\n  const { width, height, data: source } = pixels;\n  const data = new Uint8ClampedArray(source.length);\n  for (let y = 0; y < height; y++) {\n    for (let x = 0; x < width; x++) {\n      const from = (y * width + x) * 4;\n      const to = (x * height + height - 1 - y) * 4;\n      data[to] = source[from];\n      data[to + 1] = source[from + 1];\n      data[to + 2] = source[from + 2];\n      data[to + 3] = source[from + 3];\n    }\n  }\n  return { width: height, height: width, data };\n}",
+    "target": "image",
+    "kind": "js",
+    "enabled": true
+  },
+  {
+    "id": "image:flip_horizontal",
+    "name": "水平翻转",
+    "code": "function transform(pixels) {\n  const { width, height, data: source } = pixels;\n  const data = new Uint8ClampedArray(source.length);\n  for (let y = 0; y < height; y++) {\n    for (let x = 0; x < width; x++) {\n      const from = (y * width + x) * 4;\n      const to = (y * width + width - 1 - x) * 4;\n      data[to] = source[from];\n      data[to + 1] = source[from + 1];\n      data[to + 2] = source[from + 2];\n      data[to + 3] = source[from + 3];\n    }\n  }\n  return { width: width, height: height, data };\n}",
+    "target": "image",
+    "kind": "js",
+    "enabled": true
+  },
+  {
+    "id": "image:flip_vertical",
+    "name": "垂直翻转",
+    "code": "function transform(pixels) {\n  const { width, height, data: source } = pixels;\n  const data = new Uint8ClampedArray(source.length);\n  for (let y = 0; y < height; y++) {\n    for (let x = 0; x < width; x++) {\n      const from = (y * width + x) * 4;\n      const to = ((height - 1 - y) * width + x) * 4;\n      data[to] = source[from];\n      data[to + 1] = source[from + 1];\n      data[to + 2] = source[from + 2];\n      data[to + 3] = source[from + 3];\n    }\n  }\n  return { width: width, height: height, data };\n}",
+    "target": "image",
+    "kind": "js",
+    "enabled": true
+  },
+  {
+    "id": "image:resize",
+    "name": "缩放",
+    "code": "function transform(pixels) {\n  const scale = 0.5;\n  const width = Math.max(1, Math.round(pixels.width * scale));\n  const height = Math.max(1, Math.round(pixels.height * scale));\n  const data = new Uint8ClampedArray(width * height * 4);\n  const source = pixels.data;\n  for (let y = 0; y < height; y++) {\n    const sy = Math.max(0, Math.min(pixels.height - 1, (y + 0.5) * pixels.height / height - 0.5));\n    const y0 = Math.floor(sy), y1 = Math.min(y0 + 1, pixels.height - 1), fy = sy - y0;\n    for (let x = 0; x < width; x++) {\n      const sx = Math.max(0, Math.min(pixels.width - 1, (x + 0.5) * pixels.width / width - 0.5));\n      const x0 = Math.floor(sx), x1 = Math.min(x0 + 1, pixels.width - 1), fx = sx - x0;\n      const a = (y0 * pixels.width + x0) * 4, b = (y0 * pixels.width + x1) * 4;\n      const c = (y1 * pixels.width + x0) * 4, d = (y1 * pixels.width + x1) * 4;\n      const wa = (1 - fx) * (1 - fy), wb = fx * (1 - fy), wc = (1 - fx) * fy, wd = fx * fy;\n      const aa = source[a + 3] * wa, ab = source[b + 3] * wb, ac = source[c + 3] * wc, ad = source[d + 3] * wd;\n      const alpha = aa + ab + ac + ad, to = (y * width + x) * 4;\n      for (let channel = 0; channel < 3; channel++) {\n        data[to + channel] = alpha ? (source[a + channel] * aa + source[b + channel] * ab + source[c + channel] * ac + source[d + channel] * ad) / alpha : 0;\n      }\n      data[to + 3] = alpha;\n    }\n  }\n  return { width, height, data };\n}",
+    "target": "image",
+    "kind": "js",
+    "enabled": true
+  },
+  {
+    "id": "image:convert",
+    "name": "格式转换",
+    "code": "function transform(pixels, context) {\n  const format = context.format === \"png\" ? \"jpeg\" : \"png\";\n  return { ...pixels, encoding: { format } };\n}",
+    "target": "image",
+    "kind": "js",
+    "enabled": true
+  },
+  {
+    "id": "image:compress",
+    "name": "压缩",
+    "code": "function transform(pixels) {\n  return { ...pixels, encoding: { format: \"jpeg\", quality: 80 } };\n}",
+    "target": "image",
+    "kind": "js",
+    "enabled": true
+  }
+]
