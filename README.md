@@ -2,9 +2,9 @@
 
 <p align="center"><img src="assets/branding/logo.svg" width="96" alt="CPaste" /></p>
 
-使用 React、Rust 和 SQLite 的 Windows 和 macOS 本机剪贴板记录应用。
+一款本机剪贴板记录应用，剪贴板在日常工作中是非常高频的应用。因此使用CPaste后，你除了可以使用常规剪贴板的基础功能，还可以通过分词或规则引擎来进一步编辑剪贴板内容，实现即时的内容处理和输出。
 
-完全本地无任何联网权限
+完全本地无任何联网权限。
 
 
 [下载安装包](https://github.com/Chikomago/CPaste/releases/latest)
@@ -18,10 +18,9 @@
 - 规则：Rust层内嵌 QuickJS 处理脚本，你也可以自行编写js来达成你想要的规则。
 
 
-
+## 开发
 ```功能功能功能
 
-## 开发
 
 分词引擎使用 [jieba-rs](https://github.com/messense/jieba-rs)。
 
