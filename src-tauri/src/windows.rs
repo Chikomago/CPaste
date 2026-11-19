@@ -42,6 +42,41 @@ unsafe extern "system" {
     fn SetForegroundWindow(hwnd: *mut std::ffi::c_void) -> i32;
 }
 #[cfg(target_os = "windows")]
+pub(crate) fn set_rounded_corners(window: &tauri::WebviewWindow) {
+    const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+    const DWMWA_BORDER_COLOR: u32 = 34;
+    const DWMWCP_ROUND: u32 = 2;
+    const DWMWA_COLOR_NONE: u32 = 0xFFFF_FFFE;
+
+    #[link(name = "dwmapi")]
+    unsafe extern "system" {
+        fn DwmSetWindowAttribute(
+            hwnd: *mut std::ffi::c_void,
+            attribute: u32,
+            value: *const std::ffi::c_void,
+            size: u32,
+        ) -> i32;
+    }
+
+    if let Ok(hwnd) = window.hwnd() {
+        let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+        unsafe {
+            let _ = DwmSetWindowAttribute(
+                hwnd.0,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                (&DWMWCP_ROUND as *const u32).cast(),
+                std::mem::size_of::<u32>() as u32,
+            );
+            let _ = DwmSetWindowAttribute(
+                hwnd.0,
+                DWMWA_BORDER_COLOR,
+                (&DWMWA_COLOR_NONE as *const u32).cast(),
+                std::mem::size_of::<u32>() as u32,
+            );
+        }
+    }
+}
+#[cfg(target_os = "windows")]
 pub(crate) fn activate_target(s: &State, _pid: u64) -> bool {
     let hwnd = s.target_hwnd.load(Ordering::SeqCst);
     hwnd != 0 && unsafe { SetForegroundWindow(hwnd as usize as *mut std::ffi::c_void) } != 0
@@ -177,6 +212,7 @@ pub(crate) fn reveal_picker(app: AppHandle, edge: String) -> Result<(), String> 
     #[cfg(target_os = "windows")]
     {
         window.show().map_err(err)?;
+        set_rounded_corners(&window);
         window.emit("picker-opened", edge).map_err(err)?;
     }
     Ok(())
@@ -281,7 +317,7 @@ pub(crate) async fn get_preview_clip(
     }).await
 }
 #[tauri::command]
-pub(crate) fn show_preview(
+pub(crate) async fn show_preview(
     app: AppHandle,
     id: i64,
     edge: String,
@@ -291,23 +327,26 @@ pub(crate) fn show_preview(
     let preview = if let Some(window) = app.get_webview_window("preview") {
         window
     } else {
-        WebviewWindowBuilder::new(
-            &app,
-            "preview",
-            WebviewUrl::App(format!("index.html?view=preview&id={id}&edge={edge}&anchorX={anchor_x}&anchorY={anchor_y}").into()),
-        )
-        .title("")
-        .inner_size(292.0, 120.0)
-        .decorations(false)
-        .transparent(true)
-        .shadow(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .focusable(false)
-        .focused(false)
-        .visible(false)
-        .build()
-        .map_err(err)?
+        let initial = serde_json::json!({
+            "id": id,
+            "edge": &edge,
+            "anchor_x": anchor_x,
+            "anchor_y": anchor_y,
+        });
+        WebviewWindowBuilder::new(&app, "preview", WebviewUrl::default())
+            .initialization_script(format!("window.__previewInitial={initial};"))
+            .title("")
+            .inner_size(292.0, 120.0)
+            .decorations(false)
+            .transparent(true)
+            .shadow(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .focusable(false)
+            .focused(false)
+            .visible(false)
+            .build()
+            .map_err(err)?
     };
     place_preview(&app, &preview, &edge, anchor_x, anchor_y, 120.0)?;
     preview.show().map_err(err)?;
@@ -452,7 +491,7 @@ pub(crate) fn resize_edge_picker(
         .map_err(err)
 }
 #[tauri::command]
-pub(crate) fn open_settings(app: AppHandle) -> Result<(), String> {
+pub(crate) async fn open_settings(app: AppHandle) -> Result<(), String> {
     let _ = hide_preview(app.clone());
     let pinned = app
         .try_state::<Arc<State>>()
@@ -464,17 +503,18 @@ pub(crate) fn open_settings(app: AppHandle) -> Result<(), String> {
         window.show().map_err(err)?;
         window.set_focus().map_err(err)?;
     } else {
-        WebviewWindowBuilder::new(
-            &app,
-            "settings",
-            WebviewUrl::App("index.html?view=settings".into()),
-        )
-        .title("")
-        .inner_size(720.0, 640.0)
-        .min_inner_size(640.0, 520.0)
-        .center()
-        .build()
-        .map_err(err)?;
+        WebviewWindowBuilder::new(&app, "settings", WebviewUrl::default())
+            .title("CPaste")
+            .inner_size(720.0, 640.0)
+            .min_inner_size(640.0, 520.0)
+            .decorations(true)
+            .resizable(true)
+            .minimizable(true)
+            .maximizable(true)
+            .closable(true)
+            .center()
+            .build()
+            .map_err(err)?;
     }
     if let Some(window) = app.get_webview_window("settings") {
         window.set_always_on_top(pinned).map_err(err)?;

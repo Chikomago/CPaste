@@ -7,9 +7,18 @@ import {resetImageCaches} from '../lib/clip-images';
 import { RetainedPreview } from '../components/ContentPreview';
 import { setLanguage } from '../i18n';
 
+type PreviewInitial = { id?: number; edge?: string; anchor_x?: number; anchor_y?: number };
+declare global { interface Window { __previewInitial?: PreviewInitial } }
+
 export function PreviewWindow() {
-  const initial = new URLSearchParams(location.search);
-  const [placement, setPlacement] = useState<PreviewPlacement>({ id: Number(initial.get('id')) || 0, edge: (initial.get('edge') || 'none') as TriggerEdge, anchor_x: Number(initial.get('anchorX')) || 0, anchor_y: Number(initial.get('anchorY')) || 0 });
+  const params = new URLSearchParams(location.search);
+  const initial = window.__previewInitial;
+  const [placement, setPlacement] = useState<PreviewPlacement>({
+    id: Number(initial?.id ?? params.get('id') ?? 0) || 0,
+    edge: (initial?.edge ?? params.get('edge') ?? 'none') as TriggerEdge,
+    anchor_x: Number(initial?.anchor_x ?? params.get('anchorX') ?? 0) || 0,
+    anchor_y: Number(initial?.anchor_y ?? params.get('anchorY') ?? 0) || 0,
+  });
   const [dataRevision, setDataRevision] = useState(0);
   const [clip, setClip] = useState<PreviewClip | null>(null);
   const [, refreshLanguage] = useState(0);

@@ -105,7 +105,7 @@
 .preview-window .preview-body img{max-height:400px}
 
 /* Rounded popup chrome */
-html:has(.picker),body:has(.picker){background:transparent}
+html:has(.picker),body:has(.picker),body.picker-body-root{background:transparent}
 .picker{border-radius:18px;box-shadow:none}
 .result-item .result-row{height:auto;min-height:60px;max-height:112px;align-items:stretch}
 .result-item .result-text{align-self:stretch;min-height:38px;justify-content:space-between}

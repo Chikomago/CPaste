@@ -53,6 +53,10 @@ export function Picker() {
   const [sidebarTokenClip, setSidebarTokenClip] = useState<Clip | null>(null);
   const {rules:rowRules,ready:rowRulesReady}=useScriptRules();
   const pendingRules=useRef<{clip:Clip;rules:ScriptRule[]} | null>(null);
+  useEffect(() => {
+    document.body.classList.add('picker-body-root');
+    return () => document.body.classList.remove('picker-body-root');
+  }, []);
   useEffect(()=>{
     const close=(event:PointerEvent)=>{if(!(event.target as HTMLElement).closest('[data-row-rules]'))void call('hide_rule_menu');};
     document.addEventListener('pointerdown',close);

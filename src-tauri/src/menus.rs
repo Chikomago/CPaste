@@ -236,25 +236,21 @@ pub(crate) async fn show_rule_menu(
     let window = if let Some(window) = app.get_webview_window("rules") {
         window
     } else {
-        WebviewWindowBuilder::new(
-            &app,
-            "rules",
-            WebviewUrl::App("index.html?view=rules".into()),
-        )
-        .initialization_script(format!("window.__ruleMenu={};", payload))
-        .title("")
-        .decorations(false)
-        .transparent(true)
-        .shadow(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .accept_first_mouse(true)
-        .focusable(false)
-        .focused(false)
-        .visible(false)
-        .inner_size(190.0, 320.0)
-        .build()
-        .map_err(err)?
+        WebviewWindowBuilder::new(&app, "rules", WebviewUrl::default())
+            .initialization_script(format!("window.__ruleMenu={};", payload))
+            .title("")
+            .decorations(false)
+            .transparent(true)
+            .shadow(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .accept_first_mouse(true)
+            .focusable(false)
+            .focused(false)
+            .visible(false)
+            .inner_size(190.0, 320.0)
+            .build()
+            .map_err(err)?
     };
     #[cfg(target_os = "macos")]
     {

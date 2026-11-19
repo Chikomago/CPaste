@@ -169,6 +169,10 @@ pub fn run() {
                 });
                 panel.set_event_handler(Some(handler.as_ref()));
             }
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("main") {
+                windows::set_rounded_corners(&window);
+            }
             if let Err(error) = app.global_shortcut().register(p.shortcut.as_str()) {
                 eprintln!("CPaste 快捷键注册失败：{error}");
             }
@@ -185,7 +189,10 @@ pub fn run() {
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "open" => show_picker(app),
                     "settings" => {
-                        let _ = open_settings(app.clone());
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = open_settings(app).await;
+                        });
                     }
                     "toggle-listening" => {
                         menu_state.listening.fetch_xor(true, Ordering::SeqCst);
