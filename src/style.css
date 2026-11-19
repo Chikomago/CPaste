@@ -103,9 +103,11 @@
 .context-menu{max-height:calc(100vh - 12px);overflow-y:auto}
 .context-menu button,.context-menu label{min-height:27px;padding:4px 8px}
 .preview-body-root{background:transparent}
-/* The detached preview window is fully transparent; only the card paints. */
-.preview-window{width:292px;padding:8px;background:transparent;border-radius:0;overflow:visible}
-.preview-window .preview-card{height:auto;border:1px solid var(--outer-line);border-radius:12px;box-shadow:0 6px 18px #0004}
+/* The detached preview window is fully transparent; only the card paints.
+   The padding must stay larger than the shadow blur, otherwise the shadow is
+   clipped by the window edge and shows up as a grey frame around the card. */
+.preview-window{width:292px;padding:12px;background:transparent;border-radius:0;overflow:visible}
+.preview-window .preview-card{height:auto;border:0;border-radius:12px;box-shadow:0 2px 8px #00000029}
 .preview-window .preview-heading,.preview-window .preview-file{border:0}
 .preview-window .preview-body{max-height:440px;overflow:auto}
 .preview-window .preview-body img{max-height:400px}
@@ -113,11 +115,6 @@
 /* Rounded popup chrome */
 html:has(.picker),body:has(.picker),body.picker-body-root{background:transparent}
 .picker{border-radius:18px;box-shadow:none}
-/* Visible grab handle; the native drag region also covers header/filter/footer
-   blanks, and Tauri's drag script skips buttons and inputs automatically. */
-.picker-drag-handle{position:absolute;top:4px;left:175px;z-index:6;width:34px;height:5px;border-radius:3px;background:var(--line);cursor:grab;touch-action:none}
-.picker-drag-handle:hover{background:var(--muted)}
-.picker-drag-handle:active{cursor:grabbing}
 .result-item .result-row{height:auto;min-height:60px;max-height:112px;align-items:stretch}
 .result-item .result-text{align-self:stretch;min-height:38px;justify-content:space-between}
 .result-item .result-summary{height:auto;min-height:14px;max-height:28px}
@@ -545,17 +542,17 @@ body.rule-menu-root{background:transparent;overflow:hidden}
 .clip-details-actions .clip-quick-actions-dropdown .quick-rule-main:hover:not(:disabled),
 .clip-details-actions .clip-quick-actions-dropdown .media-quick-tools>button:hover:not(:disabled){background:var(--hover);color:var(--text)}
 button[data-shortcut-hint]{position:relative}
-/* Windows keycap: every modifier gets its own labelled top keycap (CTL/ALT/SFT/WIN),
-   the primary key fills the lower solid keycap. Two distinct caps keep modifiers
-   from ever being mistaken for a single primary letter. */
-button[data-shortcut-hint]::after{content:attr(data-shortcut-hint);position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.55);border-radius:inherit;background:var(--accent-fill);color:#fff;font:inherit;font-size:12px;font-weight:700;line-height:1;letter-spacing:.01em;white-space:nowrap;pointer-events:none}
-button[data-shortcut-mods]::after{padding-top:9px;font-size:10px}
-button[data-shortcut-mods]::before{content:attr(data-shortcut-mods);position:absolute;top:0;left:0;right:0;height:9px;z-index:4;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.45);border-radius:inherit;border-bottom-left-radius:0;border-bottom-right-radius:0;background:rgba(0,0,0,.55);color:#fff;font:inherit;font-size:6px;font-weight:800;line-height:1;letter-spacing:-.05em;white-space:nowrap;overflow:hidden;pointer-events:none}
+/* One keycap per action, using the macOS glyph set on both platforms so
+   Ctrl/Alt/Shift read as ⌃ / ⌥ / ⇧ instead of Latin letters. The length
+   attribute shrinks longer combinations so they never spill out of a 24px
+   row button. */
+button[data-shortcut-hint]::after{content:attr(data-shortcut-hint);position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;border-radius:5px;background:var(--accent-fill);color:#fff;font:inherit;font-size:11px;font-weight:700;line-height:1;letter-spacing:-.02em;white-space:nowrap;pointer-events:none}
+button[data-shortcut-hint][data-shortcut-len='3']::after{font-size:9.5px}
+button[data-shortcut-hint][data-shortcut-len='4']::after,button[data-shortcut-hint][data-shortcut-len='5']::after{font-size:8px;letter-spacing:-.04em}
 button[data-shortcut-hint]>svg{visibility:hidden}
 button[data-shortcut-hint]:hover::after{background:var(--accent-fill)}
 .row-actions:has([data-shortcut-hint]){opacity:1;visibility:visible;pointer-events:auto}
 .row-actions:has([data-shortcut-hint])+.row-time{opacity:0}
-.row-actions button[data-shortcut-hint]::after{border-radius:0}
 .row-actions:has([data-shortcut-hint]){overflow:hidden}
 .clip-quick-actions-dropdown .sidebar-work-header,.clip-quick-actions-dropdown .media-tool-history{display:none}
 .clip-quick-actions-dropdown .quick-tool-list{gap:0}

@@ -83,10 +83,12 @@ unsafe extern "system" {
 pub(crate) mod outside_click {
     use crate::models::State;
     use crate::windows::hide_picker_window;
-    use std::sync::{atomic::Ordering, Arc, OnceLock};
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::{Arc, OnceLock};
     use tauri::{AppHandle, Manager};
 
     static APP: OnceLock<AppHandle> = OnceLock::new();
+    static MAIN_THREAD: AtomicU32 = AtomicU32::new(0);
 
     const WH_MOUSE_LL: i32 = 14;
     const HC_ACTION: i32 = 0;
@@ -110,6 +112,7 @@ pub(crate) mod outside_click {
         extra: usize,
     }
     #[repr(C)]
+    #[derive(Clone, Copy)]
     struct Rect {
         left: i32,
         top: i32,
@@ -118,6 +121,7 @@ pub(crate) mod outside_click {
     }
 
     type HookProc = unsafe extern "system" fn(i32, usize, isize) -> isize;
+    type EnumProc = unsafe extern "system" fn(*mut std::ffi::c_void, isize) -> i32;
 
     #[link(name = "user32")]
     unsafe extern "system" {
@@ -134,6 +138,50 @@ pub(crate) mod outside_click {
             lparam: isize,
         ) -> isize;
         fn GetWindowRect(hwnd: *mut std::ffi::c_void, rect: *mut Rect) -> i32;
+        fn IsWindowVisible(hwnd: *mut std::ffi::c_void) -> i32;
+        fn EnumThreadWindows(thread_id: u32, callback: EnumProc, lparam: isize) -> i32;
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentThreadId() -> u32;
+    }
+
+    unsafe extern "system" fn collect_rect(hwnd: *mut std::ffi::c_void, lparam: isize) -> i32 {
+        let rects = unsafe { &mut *(lparam as *mut Vec<Rect>) };
+        if unsafe { IsWindowVisible(hwnd) } == 0 {
+            return 1;
+        }
+        let mut rect = Rect { left: 0, top: 0, right: 0, bottom: 0 };
+        if unsafe { GetWindowRect(hwnd, &mut rect) } != 0 {
+            rects.push(rect);
+        }
+        1
+    }
+
+    /// Resolves "is this point on one of our windows?" from inside the hook.
+    ///
+    /// The answer has to be captured at mouse-down time: the previous version
+    /// re-checked window rectangles on an async task, and by then a drag had
+    /// already moved the panel away from the click, so the picker closed as
+    /// soon as it was dragged. `None` means the hook is running on another
+    /// thread and the caller should fall back to the deferred check.
+    fn hit_test(x: i32, y: i32) -> Option<bool> {
+        let thread = unsafe { GetCurrentThreadId() };
+        if thread != MAIN_THREAD.load(Ordering::SeqCst) {
+            return None;
+        }
+        let mut rects: Vec<Rect> = Vec::new();
+        unsafe {
+            EnumThreadWindows(thread, collect_rect, &mut rects as *mut _ as isize);
+        }
+        if rects.is_empty() {
+            return None;
+        }
+        Some(
+            rects
+                .iter()
+                .any(|rect| x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom),
+        )
     }
 
     unsafe extern "system" fn on_mouse(code: i32, wparam: usize, lparam: isize) -> isize {
@@ -142,15 +190,19 @@ pub(crate) mod outside_click {
                 let point = unsafe { (*(lparam as *const MouseHookData)).pt };
                 let app = app.clone();
                 let (x, y) = (point.x, point.y);
+                let inside = hit_test(x, y);
                 tauri::async_runtime::spawn(async move {
-                    close_on_outside_click(&app, x, y);
+                    close_on_outside_click(&app, x, y, inside);
                 });
             }
         }
         unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
     }
 
-    fn close_on_outside_click(app: &AppHandle, x: i32, y: i32) {
+    fn close_on_outside_click(app: &AppHandle, x: i32, y: i32, inside: Option<bool>) {
+        if inside == Some(true) {
+            return;
+        }
         let Some(picker) = app.get_webview_window("main") else {
             return;
         };
@@ -163,35 +215,41 @@ pub(crate) mod outside_click {
         {
             return;
         }
-        // Keep the picker open for clicks on any of its own windows (preview,
-        // rule menu, settings, ...).
-        for (_, window) in app.webview_windows() {
-            if !matches!(window.is_visible(), Ok(true)) {
-                continue;
-            }
-            let Ok(hwnd) = window.hwnd() else {
-                continue;
-            };
-            let mut rect = Rect {
-                left: 0,
-                top: 0,
-                right: 0,
-                bottom: 0,
-            };
-            if unsafe { GetWindowRect(hwnd.0, &mut rect) } != 0
-                && x >= rect.left
-                && x < rect.right
-                && y >= rect.top
-                && y < rect.bottom
-            {
-                return;
+        if inside.is_none() {
+            // Fallback for the (unexpected) case where the hook is not on the
+            // main thread: re-check the rectangles here instead.
+            for (_, window) in app.webview_windows() {
+                if !matches!(window.is_visible(), Ok(true)) {
+                    continue;
+                }
+                let Ok(hwnd) = window.hwnd() else {
+                    continue;
+                };
+                let mut rect = Rect {
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                };
+                if unsafe { GetWindowRect(hwnd.0, &mut rect) } != 0
+                    && x >= rect.left
+                    && x < rect.right
+                    && y >= rect.top
+                    && y < rect.bottom
+                {
+                    return;
+                }
             }
         }
+        // Close the detached preview as well: with the focus-loss handler gone
+        // on Windows this is the only place that tears the popup down.
+        let _ = crate::windows::hide_preview(app.clone());
         let _ = hide_picker_window(app);
     }
 
     pub(crate) fn install(app: &AppHandle) {
         let _ = APP.set(app.clone());
+        MAIN_THREAD.store(unsafe { GetCurrentThreadId() }, Ordering::SeqCst);
         let hook = unsafe { SetWindowsHookExW(WH_MOUSE_LL, on_mouse, std::ptr::null_mut(), 0) };
         if hook.is_null() {
             eprintln!(

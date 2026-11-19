@@ -24,7 +24,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Workflow, ArrowDownUp, Clipboard, Code2, Copy, Download, Eye, File, FileText, FolderOpen, Heart, Image, List, Pencil, WholeWord, Pin, AppWindow, PanelRightOpen, PanelRightClose, Search, Settings2, Trash2, X } from 'lucide-react';
 import { Clip, ClipSort, TriggerEdge, PickerOpening, ActionShortcut, Preferences, Filter, PreviewClip } from '../types';
 import { actionShortcutDefaults, defaults } from '../preferences';
-import { compactShortcut, displayShortcut, normalizeShortcut, shortcutFromKey } from '../lib/shortcuts';
+import { displayShortcut, keycapShortcut, normalizeShortcut, shortcutFromKey } from '../lib/shortcuts';
 import { isCode, clipLabel, clipSummary, timeLabel } from '../lib/clips';
 import { animationsEnabled, animateSurface, applyTheme } from '../lib/theme';
 import { call } from '../lib/api';
@@ -34,6 +34,7 @@ import { ClipDetails } from '../components/ClipDetails';
 import { setLanguage, tr, trNotice } from '../i18n';
 
 type MenuEntry = { action: string; label: string; icon: React.ComponentType<{ size?: number }>; shortcut?: string; danger?: boolean };
+const isWindowsApp = navigator.userAgent.includes('Windows');
 const filters: { id: Filter; label: string; icon: React.ComponentType<{ size?: number }> }[] = [{ id: 'all', label: '全部', icon: List }, { id: 'text', label: '文本', icon: FileText }, { id: 'rich', label: '富文本', icon: Clipboard }, { id: 'image', label: '图片', icon: Image }, { id: 'files', label: '文件', icon: File }, { id: 'code', label: '代码', icon: Code2 }, { id: 'favorite', label: '收藏', icon: Heart }];
 export function Picker() {
   const [clips, setClips] = useState<Clip[]>([]);
@@ -73,6 +74,7 @@ export function Picker() {
   const defaultFilterRef = useRef<Preferences['default_filter']>('all');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [previewId, setPreviewId] = useState<number | null>(null);
+  const [hoverId, setHoverId] = useState<number | null>(null);
   const [previewClip, setPreviewClip] = useState<PreviewClip | null>(null);
   const [showPositionKeys, setShowPositionKeys] = useState(false);
   const [menu, setMenu] = useState<{ id: number; x: number; y: number } | null>(null);
@@ -108,6 +110,7 @@ export function Picker() {
     setToolHistory(items=>items.filter(item=>!removed.has(item.id)));setToolRedo(items=>items.filter(item=>!removed.has(item.id)));
     setClips(items=>items.filter(clip=>!removed.has(clip.id)));
     setSelectedId(current=>current!==null&&removed.has(current)?null:current);setPreviewId(current=>current!==null&&removed.has(current)?null:current);
+    setHoverId(current=>current!==null&&removed.has(current)?null:current);
     setSidebarToolsClip(current=>current&&removed.has(current.id)?null:current);
     ids.forEach(id=>{thumbnailCache.invalidate(id);imageRevisions.current.delete(id);});
   };
@@ -147,6 +150,9 @@ export function Picker() {
       listen<(Partial<ClipFlagPatch & ClipContentPatch> & { deleted_id?: number;deleted_ids?:number[];reset?:boolean;use_count?:number }) | null>('clips-changed', event => { const patch = event.payload; if(activity.current?.deferWork()){refreshVersion.current+=1;if(patch?.reset){resetImageCaches();imageRevisions.current.clear();}return;} if(patch?.reset){resetImageCaches();imageRevisions.current.clear();void refresh();return;} if(Array.isArray(patch?.deleted_ids)){removeClips(patch.deleted_ids);return;} if(typeof patch?.updated_id==='number'&&typeof patch.use_count==='number'){refreshVersion.current+=1;setClips(items=>items.map(clip=>clip.id===patch.updated_id?{...clip,use_count:patch.use_count!}:clip));return;} if (typeof patch?.deleted_id === 'number') removeClip(patch.deleted_id); else if (typeof patch?.updated_id === 'number' && typeof patch.plain_text === 'string') receiveContent(patch as ClipContentPatch); else if (typeof patch?.updated_id === 'number' && (typeof patch.pinned === 'boolean' || typeof patch.favorite === 'boolean')) flagMutations.receive(patch as ClipFlagPatch); else void refresh(); }),
       listen<{ id: number; action: string }>('clip-menu-action', event => menuActionRef.current(event.payload.id, event.payload.action)),
       listen('picker-hidden',()=>activity.current?.hide()),
+      // Moving the cursor onto the detached preview keeps it open; leaving it
+      // starts the same short grace period as leaving a row.
+      listen<{ inside: boolean }>('preview-pointer', event => { if (event.payload.inside) cancelHoverHide(); else scheduleHoverHide(); }),
       listen('preferences-changed',()=>{void call<Preferences>('get_preferences').then(settings=>{setPrefs(settings);setLanguage(settings.language);applyTheme(settings.theme,settings.accent_color,settings.disable_animations);activity.current?.setEnabled(settings.lightweight_mode);});}),
       listen<PickerOpening>('picker-opening', event => {
         activity.current?.show();
@@ -159,7 +165,7 @@ export function Picker() {
         closingAnimation.current = null;
         flushSync(() => {
           setPickerEdge(edge);
-          setQuery(''); setFilter(defaultFilterRef.current); setSort('created'); setSortOpen(false); setSidebarOpen(sidebar_open); setEditingClip(null); setTokenClip(null); setSidebarEditingClip(null); setSidebarTokenClip(null); setSidebarToolsClip(null); setDeleteId(null); setClearScope(null); setClearError(''); setWindowPinned(false); setSelectedId(null); setPreviewId(null); setShowPositionKeys(false); setMenu(null);
+          setQuery(''); setFilter(defaultFilterRef.current); setSort('created'); setSortOpen(false); setSidebarOpen(sidebar_open); setEditingClip(null); setTokenClip(null); setSidebarEditingClip(null); setSidebarTokenClip(null); setSidebarToolsClip(null); setDeleteId(null); setClearScope(null); setClearError(''); setWindowPinned(false); setSelectedId(null); setPreviewId(null); setHoverId(null); setShowPositionKeys(false); setMenu(null);
         });
         const reveal = (animate: boolean) => {
           animate = animate && animationsEnabled();
@@ -242,8 +248,31 @@ export function Picker() {
   // longer grows to 650px or paints a backing panel behind the preview card.
   const showPreview = detailsActive;
   const previewTargetId = showPreview ? active?.id ?? null : null;
-  const floatingPreviewId = !detailsActive && !tokenClip && !editingClip && deleteId === null
-    ? previewId ?? (pickerEdge === 'none' && prefs.hover_preview ? active?.id ?? null : null)
+  // Hover previews must not linger: when the pointer leaves the row (or the
+  // whole panel) the preview closes, instead of falling back to the selected
+  // row and staying on screen forever.
+  const hoverPreviewRef = useRef(false);
+  const hoverPreviewActive = pickerEdge === 'none' && prefs.hover_preview;
+  hoverPreviewRef.current = hoverPreviewActive;
+  const hoverHideTimer = useRef(0);
+  const cancelHoverHide = useCallback(() => {
+    if (!hoverHideTimer.current) return;
+    window.clearTimeout(hoverHideTimer.current);
+    hoverHideTimer.current = 0;
+  }, []);
+  const hideHoverPreview = () => { cancelHoverHide(); setHoverId(null); setPreviewId(null); };
+  const scheduleHoverHide = useCallback(() => {
+    if (!hoverPreviewRef.current) return;
+    cancelHoverHide();
+    // A short grace period lets the pointer travel between adjacent rows (or
+    // onto the preview itself) without flickering the panel.
+    hoverHideTimer.current = window.setTimeout(() => { hoverHideTimer.current = 0; setHoverId(null); setPreviewId(null); }, 160);
+  }, [cancelHoverHide]);
+  useEffect(() => () => cancelHoverHide(), [cancelHoverHide]);
+  // A filtered-out row must not keep its preview alive.
+  const hoveredClipId = hoverId !== null && visible.some(clip => clip.id === hoverId) ? hoverId : null;
+  const floatingPreviewId = !detailsActive && !tokenClip && !editingClip && deleteId === null && !menu
+    ? (hoverPreviewActive ? hoveredClipId ?? previewId : previewId)
     : null;
   useEffect(() => {
     if (floatingPreviewId === null) { void call('hide_preview'); return; }
@@ -419,6 +448,7 @@ export function Picker() {
     catch (error) { setNotice(tr(String(error))); } finally { setBusy(false); }
   };
   const closePicker = () => {
+    hideHoverPreview();
     if (!animationsEnabled() || !pickerRef.current) { void call('hide_picker'); return; }
     if (closingAnimation.current) return;
     const offset = { none: 'translate(0)', left: 'translateX(-100%)', right: 'translateX(100%)', top: 'translateY(-100%)', bottom: 'translateY(100%)' }[pickerEdge];
@@ -531,21 +561,20 @@ export function Picker() {
     for(const [action,labels] of Object.entries({settings:['打开设置','发现新版本，请到设置 → 关于更新'],sidebar:['展开侧栏','收起侧栏'],window_pin:['窗口置顶','取消窗口置顶'],search:['搜索剪贴板记录'],reveal_file:['打开文件位置'],open_image:['用系统预览打开'],save_image_as:['图片另存为'],tools:['快捷处理'],copy:['复制'],paste:['粘贴'],edit:['编辑内容'],segment:['分词'],pin:['置顶','取消置顶'],favorite:['收藏','取消收藏'],delete:['删除']}))for(const label of labels)actions[tr(label)]=action;
     root.querySelectorAll<HTMLButtonElement>('button').forEach(button=>{
       delete button.dataset.shortcutHint;
-      delete button.dataset.shortcutMods;
+      delete button.dataset.shortcutLen;
       const action=(button.dataset.shortcutAction??actions[button.getAttribute('aria-label')??'']) as ActionShortcut|undefined;
       if(!showPositionKeys||!action)return;
       const shortcut=({...actionShortcutDefaults,...prefs.action_shortcuts})[action];
       if(!shortcut)return;
-      const bare=shortcut.replace(/(?:CommandOrControl|Command|Control)\+/g,'');
-      if(navigator.userAgent.includes('Windows')){
-        // Keep Ctrl in the hint: it needs its own CTL keycap just like ALT/SFT,
-        // instead of being silently stripped away.
-        const compact=compactShortcut(shortcut);
-        button.dataset.shortcutHint=compact.key;
-        if(compact.mods)button.dataset.shortcutMods=compact.mods;
-      }else{
-        button.dataset.shortcutHint=displayShortcut(bare);
-      }
+      // macOS hides the trigger key (⌘) and keeps the rest; Windows keeps every
+      // modifier but draws them with the same glyphs, so "Ctrl+Shift+P" reads
+      // "⌃⇧P" on both platforms.
+      const hint=navigator.userAgent.includes('Windows')
+        ?keycapShortcut(shortcut)
+        :displayShortcut(shortcut.replace(/(?:CommandOrControl|Command|Control)\+/g,''));
+      if(!hint)return;
+      button.dataset.shortcutHint=hint;
+      button.dataset.shortcutLen=String(hint.length);
     });
   },[showPositionKeys,prefs.action_shortcuts,sidebarOpen,clips,active?.id,filter,windowPinned,sort]);
   useEffect(()=>{
@@ -607,7 +636,7 @@ export function Picker() {
   const menuRows = menuGroups.reduce((total, group) => total + group.length, 0) + Math.max(0, menuGroups.length - 1);
   const menuLeft = menu ? Math.max(6, Math.min(menu.x, window.innerWidth - 214)) : 0;
   const menuTop = menu ? Math.max(6, Math.min(menu.y, window.innerHeight - menuRows * 29 - 16)) : 0;
-  const renderRow = (c: Clip) => <div className="result-item" key={c.id} onMouseEnter={() => { if (Date.now() > scrollingUntil.current && pickerEdge === 'none' && prefs.hover_preview && !menu) setPreviewId(c.id); }} onMouseLeave={() => { if (pickerEdge === 'none' && prefs.hover_preview) setPreviewId(null); }}>
+  const renderRow = (c: Clip) => <div className="result-item" key={c.id} onMouseEnter={() => { if (Date.now() > scrollingUntil.current && pickerEdge === 'none' && prefs.hover_preview && !menu) { cancelHoverHide(); setHoverId(c.id); } }} onMouseLeave={() => { if (pickerEdge === 'none' && prefs.hover_preview) scheduleHoverHide(); }}>
     <button ref={el => { if (el) rowRefs.current[c.id] = el; else delete rowRefs.current[c.id]; }} className={`result-row ${active?.id === c.id ? 'selected' : ''} ${c.kind === 'image' ? 'image-row' : 'text-row'}`} onClick={() => { setSelectedId(c.id); setPreviewId(null); if (prefs.paste_on_single_click) void paste(c); }} onContextMenu={e => openMenu(e, c)} onDoubleClick={() => { if (!prefs.paste_on_single_click) void paste(c); }}>
       <span className="format-heading">{prefs.show_source_app_icon && pickerEdge === 'none' && <span className="row-app-shortcut"><AppIcon clip={c}/>{showPositionKeys && positionById.has(c.id) && <span className="position-key" aria-label={`快捷键 ${positionById.get(c.id)}`}>{positionById.get(c.id)}</span>}</span>}{!prefs.show_source_app_icon && showPositionKeys && positionById.has(c.id) ? <span className="row-format-shortcut position-key" aria-label={`快捷键 ${positionById.get(c.id)}`}>{positionById.get(c.id)}</span> : <span className="format-label">{clipLabel(c)}</span>}{c.favorite && <Heart size={13} fill="currentColor"/>}</span>
       {prefs.show_source_app_icon && pickerEdge !== 'none' && <AppIcon clip={c}/>}
@@ -673,6 +702,16 @@ export function Picker() {
       void call('save_preferences', { preferences: next }).catch(error => setNotice(`面板尺寸未保存：${String(error)}`));
     }
   };
+  // Windows drives the drag itself, because the native drag-region script only
+  // reacts to a few blank spots between controls. macOS keeps the native drag
+  // region (header/filter/footer), which already behaves well there.
+  const beginWindowDrag = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!isWindowsApp || pickerEdge !== 'none' || event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('button,a,input,textarea,select,label,[contenteditable="true"],[role="menu"],[role="dialog"],.result-item,.side-preview,.context-menu,.sort-menu,.clip-edit-backdrop,.confirm-backdrop')) return;
+    event.preventDefault();
+    void getCurrentWindow().startDragging().catch(() => {});
+  };
   const isHorizontal = pickerEdge === 'top' || pickerEdge === 'bottom';
   const displayedCardSize = resizeDrag.current?.current ?? prefs.edge_card_size;
   const edgeStyle = { '--expanded-panel-width': `${Math.min(displayedCardSize * prefs.side_columns + 7 * (prefs.side_columns - 1) + 316, window.screen.width - 16)}px`, '--edge-app-icon-size': `${Math.max(18, Math.min(38, Math.round(displayedCardSize * 0.135))) + 2}px`, '--edge-app-glyph-size': `${Math.max(12, Math.min(23, Math.round(displayedCardSize * 0.08))) + 2}px`, '--pinned-width': `${pinnedVisible.length * (displayedCardSize + 7) + 8}px`, '--thumbnail-max-height': `${pickerEdge === 'none' ? 100 : Math.max(40, displayedCardSize - 18 - (prefs.show_source_app_icon ? Math.max(18, Math.min(38, Math.round(displayedCardSize * 0.135))) + 10 : 0))}px`, '--item-max-lines': prefs.item_max_lines } as React.CSSProperties;
@@ -682,16 +721,16 @@ export function Picker() {
   const pinWindowButton = <button className={`header-icon window-pin ${windowPinned ? 'is-active' : ''}`} title={tr(windowPinned ? '取消窗口置顶' : '窗口置顶')} aria-label={tr(windowPinned ? '取消窗口置顶' : '窗口置顶')} aria-pressed={windowPinned} onClick={() => void call<boolean>('set_picker_pinned', { pinned: !windowPinned }).then(setWindowPinned).catch(error => setNotice(`窗口置顶失败：${String(error)}`))}><AppWindow size={17}/></button>;
   const sidebarButton = <button type="button" className={`header-icon ${sidebarOpen ? 'is-active' : ''}`} title={tr(sidebarOpen ? '收起侧栏' : '展开侧栏')} aria-label={tr(sidebarOpen ? '收起侧栏' : '展开侧栏')} aria-expanded={sidebarOpen} aria-controls="clip-detail-sidebar" onMouseDown={event => event.preventDefault()} onClick={() => setSidebarOpen(open => !open)}>{sidebarOpen ? <PanelRightClose size={17}/> : <PanelRightOpen size={17}/>}</button>;
   const settingsButton = <button className="header-icon update-settings-button" aria-label={tr(updateAvailable ? '发现新版本，请到设置 → 关于更新' : '打开设置')} title={tr(updateAvailable ? '发现新版本，请到设置 → 关于更新' : '打开设置')} onClick={() => void call('open_settings').catch(e => setNotice(`设置无法打开：${String(e)}`))}><Settings2 size={19}/>{updateAvailable && <span className="update-dot" aria-hidden="true"/>}</button>;
-  return <div className={`picker-shell edge-${pickerEdge} side-columns-${prefs.side_columns} ${detailsActive ? 'with-details' : ''}`} style={edgeStyle} onKeyDown={onKeyDown}>{pickerEdge === 'none' && <div className="picker-drag-handle" data-tauri-drag-region title={tr('拖动面板')}/>}<div ref={pickerRef} className="picker" onScrollCapture={scheduleAlignPreview} onKeyUp={e => { if (e.key === 'Meta' || e.key === 'Control') setShowPositionKeys(false); }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setShowPositionKeys(false); }} onClick={e => { if (menu) setMenu(null); if (sortOpen && !(e.target as HTMLElement).closest('.sort-control-wrap')) setSortOpen(false); if (!(e.target as HTMLElement).closest('.result-row,.context-menu')) setPreviewId(null); }}>
-    {!isHorizontal && <header className="picker-header" data-tauri-drag-region={pickerEdge === 'none' ? 'deep' : undefined}>{searchBox}{pinWindowButton}{settingsButton}{sidebarButton}</header>}
-    <div className="filter-bar" data-tauri-drag-region={pickerEdge === 'none' ? 'deep' : undefined}><div className="filter-scroll">{filters.map(f => <button key={f.id} data-shortcut-action={f.id==='favorite'?'filter_favorite':undefined} className={filter === f.id ? 'chosen' : ''} title={tr(f.label)} aria-label={tr(f.label)} aria-pressed={filter === f.id} onClick={() => { setFilter(f.id); setSelectedId(null); setPreviewId(null); }}><f.icon size={14}/></button>)}</div>{isHorizontal && <>{pinWindowButton}{settingsButton}{searchBox}</>}{sortControl}{isHorizontal && sidebarButton}</div>
+  return <div className={`picker-shell edge-${pickerEdge} side-columns-${prefs.side_columns} ${detailsActive ? 'with-details' : ''}`} style={edgeStyle} onKeyDown={onKeyDown} onMouseDown={beginWindowDrag} onMouseLeave={scheduleHoverHide}><div ref={pickerRef} className="picker" onScrollCapture={scheduleAlignPreview} onKeyUp={e => { if (e.key === 'Meta' || e.key === 'Control') setShowPositionKeys(false); }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setShowPositionKeys(false); }} onClick={e => { if (menu) setMenu(null); if (sortOpen && !(e.target as HTMLElement).closest('.sort-control-wrap')) setSortOpen(false); if (!(e.target as HTMLElement).closest('.result-row,.context-menu')) setPreviewId(null); }}>
+    {!isHorizontal && <header className="picker-header" data-tauri-drag-region={!isWindowsApp && pickerEdge === 'none' ? 'deep' : undefined}>{searchBox}{pinWindowButton}{settingsButton}{sidebarButton}</header>}
+    <div className="filter-bar" data-tauri-drag-region={!isWindowsApp && pickerEdge === 'none' ? 'deep' : undefined}><div className="filter-scroll">{filters.map(f => <button key={f.id} data-shortcut-action={f.id==='favorite'?'filter_favorite':undefined} className={filter === f.id ? 'chosen' : ''} title={tr(f.label)} aria-label={tr(f.label)} aria-pressed={filter === f.id} onClick={() => { setFilter(f.id); setSelectedId(null); setPreviewId(null); }}><f.icon size={14}/></button>)}</div>{isHorizontal && <>{pinWindowButton}{settingsButton}{searchBox}</>}{sortControl}{isHorizontal && sidebarButton}</div>
     <div className="picker-body"><div className="picker-results">
       {pinnedVisible.length > 0 && <VirtualClipList onVisibleIds={pinnedViewport} clips={pinnedVisible} className="pinned-list" label={tr('置顶记录')} edge={pickerEdge} columns={prefs.side_columns} selectedId={selectedId} resetKey={JSON.stringify([query, filter, sort])} maxLines={prefs.item_max_lines} style={isHorizontal ? { width: 'var(--pinned-width)' } : undefined} renderRow={renderRow}/>}
       <VirtualClipList onVisibleIds={regularViewport} clips={regularVisible} className="result-list" edge={pickerEdge} columns={prefs.side_columns} selectedId={selectedId} resetKey={JSON.stringify([query, filter, sort])} maxLines={prefs.item_max_lines} renderRow={renderRow}>{visible.length === 0 && <div className="empty-state"><Search size={24}/><strong>{tr(query ? '没有匹配的记录' : '还没有记录')}</strong><span>{tr(query ? '换个关键词或类型试试' : '复制内容后会显示在这里')}</span></div>}</VirtualClipList>
     </div></div>
 
     {tokenClip && <TokenDialog key={tokenClip.id} clip={tokenClip} dictionaryKey={dictionaryKey} busy={busy} onClose={() => setTokenClip(null)} onSubmit={submitFragment}/>}
-    <footer className="picker-footer" data-tauri-drag-region={pickerEdge === 'none' ? 'deep' : undefined}><span className="picker-count">{tr('共 {count} 条').replace('{count}', clips.length.toLocaleString())}</span><button type="button" className="clear-scope-button" title={tr('清空当前筛选')} aria-label={tr('清空当前筛选')} disabled={busy||transferBusy||matchedClips.length===0} onClick={()=>{setClearError('');setClearScope({ids:matchedClips.map(clip=>clip.id)});setPreviewId(null);setSortOpen(false);void call('hide_rule_menu');}}><Trash2 size={14}/></button></footer>
+    <footer className="picker-footer" data-tauri-drag-region={!isWindowsApp && pickerEdge === 'none' ? 'deep' : undefined}><span className="picker-count">{tr('共 {count} 条').replace('{count}', clips.length.toLocaleString())}</span><button type="button" className="clear-scope-button" title={tr('清空当前筛选')} aria-label={tr('清空当前筛选')} disabled={busy||transferBusy||matchedClips.length===0} onClick={()=>{setClearError('');setClearScope({ids:matchedClips.map(clip=>clip.id)});setPreviewId(null);setSortOpen(false);void call('hide_rule_menu');}}><Trash2 size={14}/></button></footer>
     {clearScope&&<ConfirmDialog title={tr('清空记录')} description={tr('将清空{count}条记录，含置顶和收藏，此操作无法恢复。').replace('{count}',String(clearScope.ids.length))+(clearError?` ${clearError}`:'')} confirmLabel={tr('清空记录')} busy={busy} onCancel={()=>{setClearScope(null);setClearError('');}} onConfirm={()=>{if(busy)return;const scope=clearScope;setBusy(true);setClearError('');void call('clear_clips',{ids:scope.ids}).then(()=>{removeClips(scope.ids);setClearScope(null);}).catch(error=>setClearError(tr(String(error)))).finally(()=>setBusy(false));}}/>}
     {deleteId !== null && <ConfirmDialog title={tr('删除记录')} description={tr('删除这条记录？删除后无法恢复。')} confirmLabel={tr('删除')} busy={busy} onCancel={() => setDeleteId(null)} onConfirm={() => { const id = deleteId; setDeleteId(null); void action('delete_clip', { id }); }}/>}
     {editingClip && <div className="clip-edit-backdrop" onClick={event => event.stopPropagation()}><ClipEditor key={editingClip.id} clip={editingClip} busy={busy} onCancel={() => setEditingClip(null)} onBeginInput={beginEditorInput} onSave={async (content, formats) => { await saveEdit(editingClip, content, formats); setEditingClip(null); }}/></div>}
