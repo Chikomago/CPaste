@@ -7,7 +7,17 @@ from zipfile import ZIP_DEFLATED, ZipFile
 target = sys.argv[1]
 arch = {'x86_64-pc-windows-msvc': 'x64'}[target]
 version = json.loads(Path('package.json').read_text())['version']
-exe = Path('src-tauri/target') / target / 'release' / 'CPaste.exe'
+release_dir = Path('src-tauri/target') / target / 'release'
+# Tauri names the cargo binary after the crate (cpaste.exe); some builds expose
+# the product name instead. Accept either, then rename inside the zip.
+preferred = [release_dir / name for name in ('cpaste.exe', 'CPaste.exe')]
+exe = next((path for path in preferred
+            if path.is_file() and path.stat().st_size > 0), None)
+if exe is None:
+    candidates = sorted(path for path in release_dir.glob('*.exe')
+                        if path.is_file() and path.stat().st_size > 0)
+    exe = candidates[0] if len(candidates) == 1 else None
+assert exe is not None, f'Missing release binary in {release_dir}'
 license_path = Path('LICENSE')
 licenses_dir = Path('licenses')
 assert exe.is_file() and exe.stat().st_size > 0, f'Missing release binary: {exe}'
