@@ -566,12 +566,13 @@ export function Picker() {
       if(!showPositionKeys||!action)return;
       const shortcut=({...actionShortcutDefaults,...prefs.action_shortcuts})[action];
       if(!shortcut)return;
-      // macOS hides the trigger key (⌘) and keeps the rest; Windows keeps every
-      // modifier but draws them with the same glyphs, so "Ctrl+Shift+P" reads
-      // "⌃⇧P" on both platforms.
+      // Both platforms hide the long-pressed trigger key: ⌘ on macOS, Ctrl on
+      // Windows. The remaining modifiers use the same glyphs, so Ctrl+Shift+P
+      // shows "⇧P" on Windows just as Cmd+Shift+P shows "⇧P" on macOS.
+      const bare=shortcut.replace(/(?:CommandOrControl|Command|Control)\+/g,'');
       const hint=navigator.userAgent.includes('Windows')
-        ?keycapShortcut(shortcut)
-        :displayShortcut(shortcut.replace(/(?:CommandOrControl|Command|Control)\+/g,''));
+        ?keycapShortcut(bare)
+        :displayShortcut(bare);
       if(!hint)return;
       button.dataset.shortcutHint=hint;
       button.dataset.shortcutLen=String(hint.length);

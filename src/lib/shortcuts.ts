@@ -11,9 +11,10 @@ export const displayShortcut = (value: string) => {
   return parts.map(part => (mac ? macNames : winNames)[part] || part).join(mac ? '' : '+');
 };
 
-// Windows keycaps reuse the macOS glyphs, one-to-one: Ctrl is ⌃, Alt is ⌥,
-// Shift is ⇧ and the Windows key is ⌘. A single line such as "⌃⇧P" always fits
-// inside a 24px row button, and no modifier can be mistaken for a bare letter.
+// Windows keycaps reuse the macOS glyphs one-to-one: Alt is ⌥, Shift is ⇧ and
+// the Windows key is ⌘. Ctrl is the held trigger key, so callers strip it before
+// formatting just like macOS strips ⌘; the remaining "⇧P" always fits a 24px
+// row button.
 const keyGlyphs: Record<string, string> = { Command: '⌘', Super: '⌘', Control: '⌃', Alt: '⌥', Shift: '⇧', Enter: '↵', Space: '␣', Delete: '⌫', Backspace: '⌫', Up: '↑', Down: '↓', Left: '←', Right: '→' };
 export const keycapShortcut = (value: string) => {
   if (!value) return '';

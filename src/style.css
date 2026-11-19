@@ -103,11 +103,13 @@
 .context-menu{max-height:calc(100vh - 12px);overflow-y:auto}
 .context-menu button,.context-menu label{min-height:27px;padding:4px 8px}
 .preview-body-root{background:transparent}
-/* The detached preview window is fully transparent; only the card paints.
-   The padding must stay larger than the shadow blur, otherwise the shadow is
-   clipped by the window edge and shows up as a grey frame around the card. */
-.preview-window{width:292px;padding:12px;background:transparent;border-radius:0;overflow:visible}
-.preview-window .preview-card{height:auto;border:0;border-radius:12px;box-shadow:0 2px 8px #00000029}
+/* The detached preview is a borderless card that fills its whole window:
+   no padding means no desktop/wallpaper band around it, and no CSS shadow
+   means no grey frame clipped at the window edge. */
+.preview-window{width:292px;padding:0;background:transparent;border-radius:0;overflow:hidden}
+/* Match the main panel chrome: 1px var(--line), 18px radius, no CSS shadow
+   (the window paints the native shadow itself). */
+.preview-window .preview-card{width:100%;height:auto;border:1px solid var(--line);border-radius:18px;box-shadow:none}
 .preview-window .preview-heading,.preview-window .preview-file{border:0}
 .preview-window .preview-body{max-height:440px;overflow:auto}
 .preview-window .preview-body img{max-height:400px}

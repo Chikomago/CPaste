@@ -30,7 +30,9 @@ export function PreviewWindow() {
     const card = containerRef.current?.querySelector('.preview-card');
     if (!card) return;
     let lastHeight = 0;
-    const resize = () => { const height = Math.ceil(Math.max(card.scrollHeight + 2, card.getBoundingClientRect().height)) + 24; if (height === lastHeight) return; lastHeight = height; void call('resize_preview', { edge: placement.edge, anchorX: placement.anchor_x, anchorY: placement.anchor_y, height }); };
+    // The card fills the window (no padding, no outer shadow), so its own
+    // height is the window height; adding padding here leaves a blank band.
+    const resize = () => { const height = Math.ceil(Math.max(card.scrollHeight, card.getBoundingClientRect().height)); if (height === lastHeight) return; lastHeight = height; void call('resize_preview', { edge: placement.edge, anchorX: placement.anchor_x, anchorY: placement.anchor_y, height }); };
     const observer = new ResizeObserver(resize);
     observer.observe(card);
     resize();

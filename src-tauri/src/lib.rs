@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager, WindowEvent};
 
 mod applications;
@@ -230,7 +230,9 @@ pub fn run() {
             let builder = builder.icon_as_template(true);
             let tray = builder
                 .menu(&menu)
-                .show_menu_on_left_click(false)
+                // Left-click opens the tray menu (which contains "打开 CPaste").
+                // The picker is opened from that item, or from the global shortcut.
+                .show_menu_on_left_click(true)
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "open" => show_picker(app),
                     "settings" => {
@@ -255,17 +257,6 @@ pub fn run() {
                     }
                     "quit" => app.exit(0),
                     _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        show_picker(app);
-                    }
                 })
                 .build(app)?;
             tray.set_visible(p.show_tray_icon)?;
