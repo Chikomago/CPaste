@@ -614,7 +614,25 @@ pub(crate) fn hide_picker(app: AppHandle) -> Result<(), String> {
         state.picker_pinned.store(false, Ordering::SeqCst);
     }
     let _ = hide_preview(app.clone());
-    hide_picker_window(&app)
+    // Hiding a focused window does not reliably restore the window that was
+    // active before it, and the picker now takes focus so wheel and keyboard
+    // events reach the page. Hand focus back to the original app so typing
+    // continues where the user left off.
+    #[cfg(target_os = "windows")]
+    let restore_focus = app
+        .get_webview_window("main")
+        .is_some_and(|window| window.is_focused().unwrap_or(false));
+    hide_picker_window(&app)?;
+    #[cfg(target_os = "windows")]
+    if restore_focus {
+        if let Some(state) = app.try_state::<Arc<State>>() {
+            let target = state.target_pid.load(Ordering::SeqCst);
+            if target != 0 {
+                let _ = activate_target(&state, target);
+            }
+        }
+    }
+    Ok(())
 }
 #[tauri::command]
 pub(crate) fn resize_edge_picker(
