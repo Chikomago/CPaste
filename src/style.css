@@ -103,8 +103,9 @@
 .context-menu{max-height:calc(100vh - 12px);overflow-y:auto}
 .context-menu button,.context-menu label{min-height:27px;padding:4px 8px}
 .preview-body-root{background:transparent}
-.preview-window{width:292px;background:var(--panel);border-radius:12px;overflow:hidden}
-.preview-window .preview-card{height:auto;border:0;border-radius:12px;box-shadow:none}
+/* The detached preview window is fully transparent; only the card paints. */
+.preview-window{width:292px;padding:8px;background:transparent;border-radius:0;overflow:visible}
+.preview-window .preview-card{height:auto;border:1px solid var(--outer-line);border-radius:12px;box-shadow:0 6px 18px #0004}
 .preview-window .preview-heading,.preview-window .preview-file{border:0}
 .preview-window .preview-body{max-height:440px;overflow:auto}
 .preview-window .preview-body img{max-height:400px}
@@ -112,6 +113,11 @@
 /* Rounded popup chrome */
 html:has(.picker),body:has(.picker),body.picker-body-root{background:transparent}
 .picker{border-radius:18px;box-shadow:none}
+/* Visible grab handle; the native drag region also covers header/filter/footer
+   blanks, and Tauri's drag script skips buttons and inputs automatically. */
+.picker-drag-handle{position:absolute;top:4px;left:175px;z-index:6;width:34px;height:5px;border-radius:3px;background:var(--line);cursor:grab;touch-action:none}
+.picker-drag-handle:hover{background:var(--muted)}
+.picker-drag-handle:active{cursor:grabbing}
 .result-item .result-row{height:auto;min-height:60px;max-height:112px;align-items:stretch}
 .result-item .result-text{align-self:stretch;min-height:38px;justify-content:space-between}
 .result-item .result-summary{height:auto;min-height:14px;max-height:28px}
@@ -140,7 +146,7 @@ html:has(.picker),body:has(.picker),body.picker-body-root{background:transparent
 .result-item+.result-item{margin-top:7px}
 .picker-shell{position:relative;width:100vw;height:100vh;overflow:hidden;background:transparent}
 .picker-shell>.picker{width:350px;height:100vh}
-.side-preview{position:absolute;left:358px;top:0;width:292px;max-height:calc(100vh - 8px);overflow:hidden;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:none}
+.side-preview{position:absolute;left:358px;top:0;width:292px;max-height:calc(100vh - 8px);overflow:hidden;border-radius:12px;background:var(--panel)}
 .side-preview .preview-card{height:auto;border:0;border-radius:0;box-shadow:none}
 .side-preview .preview-heading,.side-preview .preview-file{border:0}
 .preview-stats{padding:0 13px 8px;color:var(--muted);font-size:10px}
@@ -209,7 +215,7 @@ html:has(.picker),body:has(.picker),body.picker-body-root{background:transparent
 :root{--accent-base:#3569ed;--accent-fill:var(--accent-base);--accent-text-light:#2c58c5;--accent-text-dark:#a1b8ff;--blue:var(--accent-text-light);--blue-soft:color-mix(in srgb,var(--accent-base) 13%,var(--panel));--outer-line:color-mix(in srgb,var(--accent-base) 8%,var(--line));--panel-float-shadow:0 14px 42px #14243b40}
 @media(prefers-color-scheme:dark){:root:not([data-theme='light']){--blue:var(--accent-text-dark);--blue-soft:color-mix(in srgb,var(--accent-base) 22%,var(--panel));--outer-line:color-mix(in srgb,var(--accent-base) 12%,var(--line));--panel-float-shadow:0 16px 46px #0009}}
 :root[data-theme='dark']{--blue:var(--accent-text-dark);--blue-soft:color-mix(in srgb,var(--accent-base) 22%,var(--panel));--outer-line:color-mix(in srgb,var(--accent-base) 12%,var(--line));--panel-float-shadow:0 16px 46px #0009}
-.picker,.side-preview{border:1px solid var(--outer-line);box-shadow:var(--panel-float-shadow)}
+.picker{border:1px solid var(--outer-line);box-shadow:var(--panel-float-shadow)}
 .logo,.position-key,.detail-actions .paste-action,.inline-form button{background:var(--accent-fill);color:#fff}
 .detail-actions .paste-action{border-color:var(--accent-fill)}
 .result-icon{background:var(--blue-soft);color:var(--blue)}
@@ -539,7 +545,9 @@ body.rule-menu-root{background:transparent;overflow:hidden}
 .clip-details-actions .clip-quick-actions-dropdown .quick-rule-main:hover:not(:disabled),
 .clip-details-actions .clip-quick-actions-dropdown .media-quick-tools>button:hover:not(:disabled){background:var(--hover);color:var(--text)}
 button[data-shortcut-hint]{position:relative}
-button[data-shortcut-hint]::after{content:attr(data-shortcut-hint);position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;border-radius:inherit;background:var(--accent-fill);color:#fff;font:inherit;font-size:11px;font-weight:500;line-height:1;white-space:nowrap;pointer-events:none}
+/* Windows keycap: primary key fills the button, modifiers sit in a small badge. */
+button[data-shortcut-hint]::after{content:attr(data-shortcut-hint);position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.55);border-radius:inherit;background:var(--accent-fill);color:#fff;font:inherit;font-size:12px;font-weight:700;line-height:1;letter-spacing:.01em;white-space:nowrap;pointer-events:none}
+button[data-shortcut-mods]::before{content:attr(data-shortcut-mods);position:absolute;top:1px;left:1px;z-index:4;max-width:calc(100% - 2px);padding:0 2px;border-radius:3px;background:rgba(0,0,0,.42);color:#fff;font:inherit;font-size:7px;font-weight:700;line-height:10px;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
 button[data-shortcut-hint]>svg{visibility:hidden}
 button[data-shortcut-hint]:hover::after{background:var(--accent-fill)}
 .row-actions:has([data-shortcut-hint]){opacity:1;visibility:visible;pointer-events:auto}

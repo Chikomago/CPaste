@@ -315,6 +315,9 @@ pub fn run() {
                         #[cfg(target_os = "windows")]
                         let _ = hide_picker_window(window.app_handle());
                     }
+                    WindowEvent::Moved(_) => {
+                        crate::windows::on_main_moved(window.app_handle());
+                    }
                     _ => {}
                 }
             }

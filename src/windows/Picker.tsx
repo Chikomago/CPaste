@@ -24,7 +24,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Workflow, ArrowDownUp, Clipboard, Code2, Copy, Download, Eye, File, FileText, FolderOpen, Heart, Image, List, Pencil, WholeWord, Pin, AppWindow, PanelRightOpen, PanelRightClose, Search, Settings2, Trash2, X } from 'lucide-react';
 import { Clip, ClipSort, TriggerEdge, PickerOpening, ActionShortcut, Preferences, Filter, PreviewClip } from '../types';
 import { actionShortcutDefaults, defaults } from '../preferences';
-import { displayShortcut, normalizeShortcut, shortcutFromKey } from '../lib/shortcuts';
+import { compactShortcut, displayShortcut, normalizeShortcut, shortcutFromKey } from '../lib/shortcuts';
 import { isCode, clipLabel, clipSummary, timeLabel } from '../lib/clips';
 import { animationsEnabled, animateSurface, applyTheme } from '../lib/theme';
 import { call } from '../lib/api';
@@ -94,7 +94,8 @@ export function Picker() {
   const edgeOpeningAnimation = useRef(false);
   const resizeDrag = useRef<{ edge: Exclude<TriggerEdge, 'none'>; start: number; cardSize: number; current: number; columns: number } | null>(null);
   const resizeQueue = useRef<{ requested: number | null; running: boolean }>({ requested: null, running: false });
-  const [previewTop, setPreviewTop] = useState(0);
+  const scrollingUntil = useRef(0);
+  const alignFrame = useRef(0);
   const pastingRef = useRef(false);
   const refreshVersion = useRef(0);
   const refreshNow=useRef<()=>void>(()=>{});
@@ -236,15 +237,19 @@ export function Picker() {
   const positionClips=useMemo(()=>[...viewportIds.pinned,...viewportIds.regular].map(id=>visible.find(clip=>clip.id===id)).filter((clip):clip is Clip=>!!clip).slice(0,10),[viewportIds,visible]);
   const positionById = useMemo(() => new Map(positionClips.map((clip,index)=>[clip.id,index===9?0:index+1])),[positionClips]);
   const detailsActive = sidebarOpen && !tokenClip && !editingClip;
-  const showPreview = !tokenClip && !editingClip && (detailsActive || deleteId === null && pickerEdge === 'none' && (prefs.hover_preview || previewId !== null));
-  const previewTargetId = showPreview ? (detailsActive ? active?.id ?? null : previewId ?? (prefs.hover_preview ? active?.id ?? null : null)) : null;
-  const edgePreviewId = detailsActive ? null : previewId;
+  // The in-window sidebar is now reserved for the expanded details/editor view.
+  // Hover previews live in a separate native window, so the picker webview no
+  // longer grows to 650px or paints a backing panel behind the preview card.
+  const showPreview = detailsActive;
+  const previewTargetId = showPreview ? active?.id ?? null : null;
+  const floatingPreviewId = !detailsActive && !tokenClip && !editingClip && deleteId === null
+    ? previewId ?? (pickerEdge === 'none' && prefs.hover_preview ? active?.id ?? null : null)
+    : null;
   useEffect(() => {
-    if (pickerEdge === 'none' || edgePreviewId === null || tokenClip || editingClip || deleteId !== null) { void call('hide_preview'); return; }
-    const row = rowRefs.current[edgePreviewId]?.getBoundingClientRect();
-    void call('show_preview', { id: edgePreviewId, edge: pickerEdge, anchorX: row ? row.left + row.width / 2 : window.innerWidth / 2, anchorY: row ? row.top + row.height / 2 : window.innerHeight / 2 }).catch(error => setNotice(`预览无法打开：${String(error)}`));
-    return () => { void call('hide_preview'); };
-  }, [pickerEdge, edgePreviewId, detailsActive, tokenClip, editingClip, deleteId]);
+    if (floatingPreviewId === null) { void call('hide_preview'); return; }
+    const row = rowRefs.current[floatingPreviewId]?.getBoundingClientRect();
+    void call('show_preview', { id: floatingPreviewId, edge: pickerEdge, anchorX: row ? row.left + row.width / 2 : window.innerWidth / 2, anchorY: row ? row.top + row.height / 2 : window.innerHeight / 2 }).catch(error => setNotice(`预览无法打开：${String(error)}`));
+  }, [pickerEdge, floatingPreviewId, detailsActive, tokenClip, editingClip, deleteId]);
 
   const detailsGeometry = useRef<{ edge: TriggerEdge; expanded: boolean }>({ edge: 'none', expanded: false });
   useEffect(() => {
@@ -255,11 +260,11 @@ export function Picker() {
     void call('resize_edge_picker', { edge: pickerEdge, cardSize: prefs.edge_card_size, details: detailsActive }).catch(error => setNotice(`面板尺寸调整失败：${String(error)}`));
   }, [pickerEdge, detailsActive, prefs.edge_card_size]);
   useLayoutEffect(() => {
-    if (pickerEdge !== 'none' || prefs.hover_preview) return;
-    const width = showPreview ? 650 : 350;
+    if (pickerEdge !== 'none') return;
+    const width = detailsActive ? 650 : 350;
     if (Math.abs(window.innerWidth - width) < 1 && Math.abs(window.innerHeight - 600) < 1) return;
     void getCurrentWindow().setSize(new LogicalSize(width, 600)).catch(error => setNotice(`预览窗口无法调整：${String(error)}`));
-  }, [showPreview, prefs.hover_preview, pickerEdge]);
+  }, [detailsActive, pickerEdge]);
   const previewKnown = clips.find(clip => clip.id === previewTargetId);
   useEffect(() => {
     if (previewTargetId === null || previewKnown?.kind !== 'files') return;
@@ -273,19 +278,29 @@ export function Picker() {
     if (previewClip?.id === previewTargetId && known) return { ...previewClip, ...known, file_sizes: known.files.map((file, index) => previewClip.files[index] === file ? previewClip.file_sizes[index] ?? null : null) };
     return known ? { ...known, file_sizes: known.files.map(() => null) } : null;
   }, [previewClip, previewTargetId, clips]);
+  // Write the preview offset straight to the DOM: setState here used to
+  // re-render the whole picker (and the virtual list) on every scroll frame,
+  // which is why wheel events were intermittently dropped on Windows.
   const alignPreview = () => {
-    if (detailsActive) { setPreviewTop(0); return; }
-    const row = previewTargetId === null ? null : rowRefs.current[previewTargetId];
     const preview = previewRef.current;
+    if (!preview) return;
+    if (detailsActive) { preview.style.top = '0px'; return; }
+    const row = previewTargetId === null ? null : rowRefs.current[previewTargetId];
     const shell = pickerRef.current?.parentElement;
-    if (!row || !preview || !shell) return;
+    if (!row || !shell) return;
     const shellBounds = shell.getBoundingClientRect();
     const rowBounds = row.getBoundingClientRect();
     const rowY = rowBounds.top + rowBounds.height / 2 - shellBounds.top;
     const height = preview.getBoundingClientRect().height;
     const top = Math.max(0, Math.min(rowY - 24, shellBounds.height - height));
-    setPreviewTop(top);
+    preview.style.top = `${top}px`;
   };
+  const scheduleAlignPreview = () => {
+    scrollingUntil.current = Date.now() + 200;
+    if (alignFrame.current) return;
+    alignFrame.current = requestAnimationFrame(() => { alignFrame.current = 0; alignPreview(); });
+  };
+  useEffect(() => () => { if (alignFrame.current) cancelAnimationFrame(alignFrame.current); }, []);
   useLayoutEffect(() => {
     if (!showPreview) return;
     alignPreview();
@@ -303,6 +318,22 @@ export function Picker() {
     };
     lists?.forEach(list => list.addEventListener('wheel', scrollSideways, { passive: false }));
     return () => lists?.forEach(list => list.removeEventListener('wheel', scrollSideways));
+  }, [pickerEdge, clips]);
+  // WebView2 sometimes swallows wheel events over the virtual list unless the
+  // cursor sits on the scrollbar. Take vertical scrolling over natively there,
+  // and suppress hover-preview changes while the list is being scrolled.
+  useEffect(() => {
+    if (!navigator.userAgent.includes('Windows') || pickerEdge === 'top' || pickerEdge === 'bottom') return;
+    const lists = pickerRef.current?.querySelectorAll<HTMLElement>('.result-list,.pinned-list');
+    const onWheel = (event: WheelEvent) => {
+      scrollingUntil.current = Date.now() + 200;
+      const list = event.currentTarget as HTMLElement;
+      if (list.scrollHeight <= list.clientHeight + 1) return;
+      event.preventDefault();
+      list.scrollTop += event.deltaY;
+    };
+    lists?.forEach(list => list.addEventListener('wheel', onWheel, { passive: false }));
+    return () => lists?.forEach(list => list.removeEventListener('wheel', onWheel));
   }, [pickerEdge, clips]);
   const action = async (name: string, args?: Record<string, unknown>, successNotice?: string) => {
     setMenu(null);
@@ -500,10 +531,19 @@ export function Picker() {
     for(const [action,labels] of Object.entries({settings:['打开设置','发现新版本，请到设置 → 关于更新'],sidebar:['展开侧栏','收起侧栏'],window_pin:['窗口置顶','取消窗口置顶'],search:['搜索剪贴板记录'],reveal_file:['打开文件位置'],open_image:['用系统预览打开'],save_image_as:['图片另存为'],tools:['快捷处理'],copy:['复制'],paste:['粘贴'],edit:['编辑内容'],segment:['分词'],pin:['置顶','取消置顶'],favorite:['收藏','取消收藏'],delete:['删除']}))for(const label of labels)actions[tr(label)]=action;
     root.querySelectorAll<HTMLButtonElement>('button').forEach(button=>{
       delete button.dataset.shortcutHint;
+      delete button.dataset.shortcutMods;
       const action=(button.dataset.shortcutAction??actions[button.getAttribute('aria-label')??'']) as ActionShortcut|undefined;
       if(!showPositionKeys||!action)return;
       const shortcut=({...actionShortcutDefaults,...prefs.action_shortcuts})[action];
-      if(shortcut)button.dataset.shortcutHint=displayShortcut(shortcut.replace(/(?:CommandOrControl|Command|Control)\+/g,''));
+      if(!shortcut)return;
+      const bare=shortcut.replace(/(?:CommandOrControl|Command|Control)\+/g,'');
+      if(navigator.userAgent.includes('Windows')){
+        const compact=compactShortcut(bare);
+        button.dataset.shortcutHint=compact.key;
+        if(compact.mods)button.dataset.shortcutMods=compact.mods;
+      }else{
+        button.dataset.shortcutHint=displayShortcut(bare);
+      }
     });
   },[showPositionKeys,prefs.action_shortcuts,sidebarOpen,clips,active?.id,filter,windowPinned,sort]);
   useEffect(()=>{
@@ -560,17 +600,12 @@ export function Picker() {
     groups.push([{ action: 'delete', label: '删除记录', icon: Trash2, shortcut: shortcutLabel('delete'), danger: true }]);
     return groups;
   };
-  const beginWindowDrag = (event: React.MouseEvent) => {
-    if (pickerEdge !== 'none' || event.button !== 0) return;
-    if ((event.target as HTMLElement).closest('button,input,select,textarea,a,.search-box,.result-row,.context-menu')) return;
-    void getCurrentWindow().startDragging();
-  };
   const menuClip = menu ? clips.find(clip => clip.id === menu.id) ?? null : null;
   const menuGroups = menuClip ? contextGroups(menuClip) : [];
   const menuRows = menuGroups.reduce((total, group) => total + group.length, 0) + Math.max(0, menuGroups.length - 1);
   const menuLeft = menu ? Math.max(6, Math.min(menu.x, window.innerWidth - 214)) : 0;
   const menuTop = menu ? Math.max(6, Math.min(menu.y, window.innerHeight - menuRows * 29 - 16)) : 0;
-  const renderRow = (c: Clip) => <div className="result-item" key={c.id} onMouseEnter={() => { if (pickerEdge === 'none' && prefs.hover_preview && !menu) setPreviewId(c.id); }} onMouseLeave={() => { if (pickerEdge === 'none' && prefs.hover_preview) setPreviewId(null); }}>
+  const renderRow = (c: Clip) => <div className="result-item" key={c.id} onMouseEnter={() => { if (Date.now() > scrollingUntil.current && pickerEdge === 'none' && prefs.hover_preview && !menu) setPreviewId(c.id); }} onMouseLeave={() => { if (pickerEdge === 'none' && prefs.hover_preview) setPreviewId(null); }}>
     <button ref={el => { if (el) rowRefs.current[c.id] = el; else delete rowRefs.current[c.id]; }} className={`result-row ${active?.id === c.id ? 'selected' : ''} ${c.kind === 'image' ? 'image-row' : 'text-row'}`} onClick={() => { setSelectedId(c.id); setPreviewId(null); if (prefs.paste_on_single_click) void paste(c); }} onContextMenu={e => openMenu(e, c)} onDoubleClick={() => { if (!prefs.paste_on_single_click) void paste(c); }}>
       <span className="format-heading">{prefs.show_source_app_icon && pickerEdge === 'none' && <span className="row-app-shortcut"><AppIcon clip={c}/>{showPositionKeys && positionById.has(c.id) && <span className="position-key" aria-label={`快捷键 ${positionById.get(c.id)}`}>{positionById.get(c.id)}</span>}</span>}{!prefs.show_source_app_icon && showPositionKeys && positionById.has(c.id) ? <span className="row-format-shortcut position-key" aria-label={`快捷键 ${positionById.get(c.id)}`}>{positionById.get(c.id)}</span> : <span className="format-label">{clipLabel(c)}</span>}{c.favorite && <Heart size={13} fill="currentColor"/>}</span>
       {prefs.show_source_app_icon && pickerEdge !== 'none' && <AppIcon clip={c}/>}
@@ -645,21 +680,21 @@ export function Picker() {
   const pinWindowButton = <button className={`header-icon window-pin ${windowPinned ? 'is-active' : ''}`} title={tr(windowPinned ? '取消窗口置顶' : '窗口置顶')} aria-label={tr(windowPinned ? '取消窗口置顶' : '窗口置顶')} aria-pressed={windowPinned} onClick={() => void call<boolean>('set_picker_pinned', { pinned: !windowPinned }).then(setWindowPinned).catch(error => setNotice(`窗口置顶失败：${String(error)}`))}><AppWindow size={17}/></button>;
   const sidebarButton = <button type="button" className={`header-icon ${sidebarOpen ? 'is-active' : ''}`} title={tr(sidebarOpen ? '收起侧栏' : '展开侧栏')} aria-label={tr(sidebarOpen ? '收起侧栏' : '展开侧栏')} aria-expanded={sidebarOpen} aria-controls="clip-detail-sidebar" onMouseDown={event => event.preventDefault()} onClick={() => setSidebarOpen(open => !open)}>{sidebarOpen ? <PanelRightClose size={17}/> : <PanelRightOpen size={17}/>}</button>;
   const settingsButton = <button className="header-icon update-settings-button" aria-label={tr(updateAvailable ? '发现新版本，请到设置 → 关于更新' : '打开设置')} title={tr(updateAvailable ? '发现新版本，请到设置 → 关于更新' : '打开设置')} onClick={() => void call('open_settings').catch(e => setNotice(`设置无法打开：${String(e)}`))}><Settings2 size={19}/>{updateAvailable && <span className="update-dot" aria-hidden="true"/>}</button>;
-  return <div className={`picker-shell edge-${pickerEdge} side-columns-${prefs.side_columns} ${showPreview ? 'with-preview' : ''} ${detailsActive ? 'with-details' : ''}`} style={edgeStyle} onKeyDown={onKeyDown}><div ref={pickerRef} className="picker" onScrollCapture={alignPreview} onKeyUp={e => { if (e.key === 'Meta' || e.key === 'Control') setShowPositionKeys(false); }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setShowPositionKeys(false); }} onClick={e => { if (menu) setMenu(null); if (sortOpen && !(e.target as HTMLElement).closest('.sort-control-wrap')) setSortOpen(false); if (!(e.target as HTMLElement).closest('.result-row,.context-menu')) setPreviewId(null); }}>
-    {!isHorizontal && <header className="picker-header" onMouseDown={beginWindowDrag}>{searchBox}{pinWindowButton}{settingsButton}{sidebarButton}</header>}
-    <div className="filter-bar" onMouseDown={beginWindowDrag}><div className="filter-scroll">{filters.map(f => <button key={f.id} data-shortcut-action={f.id==='favorite'?'filter_favorite':undefined} className={filter === f.id ? 'chosen' : ''} title={tr(f.label)} aria-label={tr(f.label)} aria-pressed={filter === f.id} onClick={() => { setFilter(f.id); setSelectedId(null); setPreviewId(null); }}><f.icon size={14}/></button>)}</div>{isHorizontal && <>{pinWindowButton}{settingsButton}{searchBox}</>}{sortControl}{isHorizontal && sidebarButton}</div>
+  return <div className={`picker-shell edge-${pickerEdge} side-columns-${prefs.side_columns} ${detailsActive ? 'with-details' : ''}`} style={edgeStyle} onKeyDown={onKeyDown}>{pickerEdge === 'none' && <div className="picker-drag-handle" data-tauri-drag-region title={tr('拖动面板')}/>}<div ref={pickerRef} className="picker" onScrollCapture={scheduleAlignPreview} onKeyUp={e => { if (e.key === 'Meta' || e.key === 'Control') setShowPositionKeys(false); }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setShowPositionKeys(false); }} onClick={e => { if (menu) setMenu(null); if (sortOpen && !(e.target as HTMLElement).closest('.sort-control-wrap')) setSortOpen(false); if (!(e.target as HTMLElement).closest('.result-row,.context-menu')) setPreviewId(null); }}>
+    {!isHorizontal && <header className="picker-header" data-tauri-drag-region={pickerEdge === 'none' ? 'deep' : undefined}>{searchBox}{pinWindowButton}{settingsButton}{sidebarButton}</header>}
+    <div className="filter-bar" data-tauri-drag-region={pickerEdge === 'none' ? 'deep' : undefined}><div className="filter-scroll">{filters.map(f => <button key={f.id} data-shortcut-action={f.id==='favorite'?'filter_favorite':undefined} className={filter === f.id ? 'chosen' : ''} title={tr(f.label)} aria-label={tr(f.label)} aria-pressed={filter === f.id} onClick={() => { setFilter(f.id); setSelectedId(null); setPreviewId(null); }}><f.icon size={14}/></button>)}</div>{isHorizontal && <>{pinWindowButton}{settingsButton}{searchBox}</>}{sortControl}{isHorizontal && sidebarButton}</div>
     <div className="picker-body"><div className="picker-results">
       {pinnedVisible.length > 0 && <VirtualClipList onVisibleIds={pinnedViewport} clips={pinnedVisible} className="pinned-list" label={tr('置顶记录')} edge={pickerEdge} columns={prefs.side_columns} selectedId={selectedId} resetKey={JSON.stringify([query, filter, sort])} maxLines={prefs.item_max_lines} style={isHorizontal ? { width: 'var(--pinned-width)' } : undefined} renderRow={renderRow}/>}
       <VirtualClipList onVisibleIds={regularViewport} clips={regularVisible} className="result-list" edge={pickerEdge} columns={prefs.side_columns} selectedId={selectedId} resetKey={JSON.stringify([query, filter, sort])} maxLines={prefs.item_max_lines} renderRow={renderRow}>{visible.length === 0 && <div className="empty-state"><Search size={24}/><strong>{tr(query ? '没有匹配的记录' : '还没有记录')}</strong><span>{tr(query ? '换个关键词或类型试试' : '复制内容后会显示在这里')}</span></div>}</VirtualClipList>
     </div></div>
 
     {tokenClip && <TokenDialog key={tokenClip.id} clip={tokenClip} dictionaryKey={dictionaryKey} busy={busy} onClose={() => setTokenClip(null)} onSubmit={submitFragment}/>}
-    <footer className="picker-footer" onMouseDown={beginWindowDrag}><span className="picker-count">{tr('共 {count} 条').replace('{count}', clips.length.toLocaleString())}</span><button type="button" className="clear-scope-button" title={tr('清空当前筛选')} aria-label={tr('清空当前筛选')} disabled={busy||transferBusy||matchedClips.length===0} onClick={()=>{setClearError('');setClearScope({ids:matchedClips.map(clip=>clip.id)});setPreviewId(null);setSortOpen(false);void call('hide_rule_menu');}}><Trash2 size={14}/></button></footer>
+    <footer className="picker-footer" data-tauri-drag-region={pickerEdge === 'none' ? 'deep' : undefined}><span className="picker-count">{tr('共 {count} 条').replace('{count}', clips.length.toLocaleString())}</span><button type="button" className="clear-scope-button" title={tr('清空当前筛选')} aria-label={tr('清空当前筛选')} disabled={busy||transferBusy||matchedClips.length===0} onClick={()=>{setClearError('');setClearScope({ids:matchedClips.map(clip=>clip.id)});setPreviewId(null);setSortOpen(false);void call('hide_rule_menu');}}><Trash2 size={14}/></button></footer>
     {clearScope&&<ConfirmDialog title={tr('清空记录')} description={tr('将清空{count}条记录，含置顶和收藏，此操作无法恢复。').replace('{count}',String(clearScope.ids.length))+(clearError?` ${clearError}`:'')} confirmLabel={tr('清空记录')} busy={busy} onCancel={()=>{setClearScope(null);setClearError('');}} onConfirm={()=>{if(busy)return;const scope=clearScope;setBusy(true);setClearError('');void call('clear_clips',{ids:scope.ids}).then(()=>{removeClips(scope.ids);setClearScope(null);}).catch(error=>setClearError(tr(String(error)))).finally(()=>setBusy(false));}}/>}
     {deleteId !== null && <ConfirmDialog title={tr('删除记录')} description={tr('删除这条记录？删除后无法恢复。')} confirmLabel={tr('删除')} busy={busy} onCancel={() => setDeleteId(null)} onConfirm={() => { const id = deleteId; setDeleteId(null); void action('delete_clip', { id }); }}/>}
     {editingClip && <div className="clip-edit-backdrop" onClick={event => event.stopPropagation()}><ClipEditor key={editingClip.id} clip={editingClip} busy={busy} onCancel={() => setEditingClip(null)} onBeginInput={beginEditorInput} onSave={async (content, formats) => { await saveEdit(editingClip, content, formats); setEditingClip(null); }}/></div>}
 
     {pickerEdge !== 'none' && <div className={`resize-edge resize-${pickerEdge}`} role="separator" aria-label={tr('拖动面板边缘调整大小')} onPointerDown={beginResize} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} onLostPointerCapture={endResize}/>}
     {notice && <div className="toast" role="status">{trNotice(notice)}<button title={tr('关闭提示')} onClick={() => setNotice('')}><X size={14}/></button></div>}
-  </div><aside ref={previewRef} hidden={!showPreview} id="clip-detail-sidebar" className={`side-preview ${detailsActive ? 'details-sidebar' : ''}`} style={{ top: previewTop }} aria-label={tr('内容预览')}><div className="sidebar-detail-view" hidden={sidebarOpen && (sidebarEditingClip !== null || sidebarTokenClip !== null)}><ClipDetails rulesEnabled={prefs.rules_enabled} clip={displayedPreview} active={showPreview} expanded={sidebarOpen} busy={busy} transferBusy={transferBusy} toolsExpanded={sidebarToolsClip?.id === displayedPreview?.id && sidebarToolsClip !== null} toolsPanel={sidebarToolsClip && (sidebarToolsClip.kind === 'image' || sidebarToolsClip.kind === 'files') ? <MediaQuickTools key={sidebarToolsClip.id} clip={sidebarToolsClip} busy={busy} onBusy={setBusy} onError={setNotice}/> : sidebarToolsClip ? <QuickActionsPanel key={sidebarToolsClip.id} active={detailsActive} clip={sidebarToolsClip} busy={busy} canUndo={toolHistory.length > 0} canRedo={toolRedo.length > 0} onRedo={redoTool} onClose={() => setSidebarToolsClip(null)} onApply={applyTool} onUndo={undoTool}/> : null} onAction={(id, choice) => menuActionRef.current(id, choice)}/></div>{sidebarEditingClip && <div className="sidebar-work-view" hidden={!sidebarOpen}><ClipEditor key={sidebarEditingClip.id} embedded active={detailsActive} clip={sidebarEditingClip} busy={busy} onCancel={() => setSidebarEditingClip(null)} onBeginInput={beginEditorInput} onSave={async (content, formats) => { await saveEdit(sidebarEditingClip, content, formats); setSidebarEditingClip(null); }}/></div>}{sidebarTokenClip && <div className="sidebar-work-view" hidden={!sidebarOpen}><TokenDialog key={sidebarTokenClip.id} embedded clip={sidebarTokenClip} dictionaryKey={dictionaryKey} busy={busy} onClose={() => setSidebarTokenClip(null)} onSubmit={text => submitFragment(text, sidebarTokenClip)}/></div>}{showPreview && !sidebarEditingClip && !sidebarTokenClip && !sidebarToolsClip && !displayedPreview && <div className="detail-empty">{tr(previewTargetId === null ? '选择记录以预览内容' : '预览加载中')}</div>}</aside>{menu && menuClip && <div className="context-menu" role="menu" aria-label={tr('记录操作')} style={{ left: menuLeft, top: menuTop }} onContextMenu={event => event.preventDefault()}>{menuGroups.map((group, index) => <div className="context-menu-group" key={index}>{index > 0 && <div className="menu-divider"/>}{group.map(entry => <button key={entry.action} type="button" role="menuitem" className={entry.danger ? 'danger' : ''} onClick={() => { const id = menu.id; setMenu(null); menuActionRef.current(id, entry.action); }}><entry.icon size={15}/><span>{tr(entry.label)}</span>{entry.shortcut && <span className="menu-shortcut">{entry.shortcut}</span>}</button>)}</div>)}</div>}</div>;
+  </div><aside ref={previewRef} hidden={!showPreview} id="clip-detail-sidebar" className={`side-preview ${detailsActive ? 'details-sidebar' : ''}`} aria-label={tr('内容预览')}><div className="sidebar-detail-view" hidden={sidebarOpen && (sidebarEditingClip !== null || sidebarTokenClip !== null)}><ClipDetails rulesEnabled={prefs.rules_enabled} clip={displayedPreview} active={showPreview} expanded={sidebarOpen} busy={busy} transferBusy={transferBusy} toolsExpanded={sidebarToolsClip?.id === displayedPreview?.id && sidebarToolsClip !== null} toolsPanel={sidebarToolsClip && (sidebarToolsClip.kind === 'image' || sidebarToolsClip.kind === 'files') ? <MediaQuickTools key={sidebarToolsClip.id} clip={sidebarToolsClip} busy={busy} onBusy={setBusy} onError={setNotice}/> : sidebarToolsClip ? <QuickActionsPanel key={sidebarToolsClip.id} active={detailsActive} clip={sidebarToolsClip} busy={busy} canUndo={toolHistory.length > 0} canRedo={toolRedo.length > 0} onRedo={redoTool} onClose={() => setSidebarToolsClip(null)} onApply={applyTool} onUndo={undoTool}/> : null} onAction={(id, choice) => menuActionRef.current(id, choice)}/></div>{sidebarEditingClip && <div className="sidebar-work-view" hidden={!sidebarOpen}><ClipEditor key={sidebarEditingClip.id} embedded active={detailsActive} clip={sidebarEditingClip} busy={busy} onCancel={() => setSidebarEditingClip(null)} onBeginInput={beginEditorInput} onSave={async (content, formats) => { await saveEdit(sidebarEditingClip, content, formats); setSidebarEditingClip(null); }}/></div>}{sidebarTokenClip && <div className="sidebar-work-view" hidden={!sidebarOpen}><TokenDialog key={sidebarTokenClip.id} embedded clip={sidebarTokenClip} dictionaryKey={dictionaryKey} busy={busy} onClose={() => setSidebarTokenClip(null)} onSubmit={text => submitFragment(text, sidebarTokenClip)}/></div>}{showPreview && !sidebarEditingClip && !sidebarTokenClip && !sidebarToolsClip && !displayedPreview && <div className="detail-empty">{tr(previewTargetId === null ? '选择记录以预览内容' : '预览加载中')}</div>}</aside>{menu && menuClip && <div className="context-menu" role="menu" aria-label={tr('记录操作')} style={{ left: menuLeft, top: menuTop }} onContextMenu={event => event.preventDefault()}>{menuGroups.map((group, index) => <div className="context-menu-group" key={index}>{index > 0 && <div className="menu-divider"/>}{group.map(entry => <button key={entry.action} type="button" role="menuitem" className={entry.danger ? 'danger' : ''} onClick={() => { const id = menu.id; setMenu(null); menuActionRef.current(id, entry.action); }}><entry.icon size={15}/><span>{tr(entry.label)}</span>{entry.shortcut && <span className="menu-shortcut">{entry.shortcut}</span>}</button>)}</div>)}</div>}</div>;
 }

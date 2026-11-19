@@ -13,6 +13,39 @@ use crate::privacy::{contains_sensitive, mask_sensitive};
 use crate::models::PickerOpening;
 use crate::state::{db, err, prefs};
 
+// Last placement of the detached preview window. The picker can be dragged
+// now, so the preview has to follow it whenever the main window moves.
+#[derive(Clone)]
+struct PreviewAnchor {
+    edge: String,
+    anchor_x: f64,
+    anchor_y: f64,
+    height: f64,
+}
+static PREVIEW_ANCHOR: std::sync::OnceLock<std::sync::Mutex<Option<PreviewAnchor>>> =
+    std::sync::OnceLock::new();
+fn preview_anchor() -> &'static std::sync::Mutex<Option<PreviewAnchor>> {
+    PREVIEW_ANCHOR.get_or_init(|| std::sync::Mutex::new(None))
+}
+pub(crate) fn on_main_moved(app: &AppHandle) {
+    let anchor = preview_anchor().lock().ok().and_then(|guard| guard.clone());
+    let Some(anchor) = anchor else { return };
+    let Some(preview) = app.get_webview_window("preview") else {
+        return;
+    };
+    if !preview.is_visible().unwrap_or(false) {
+        return;
+    }
+    let _ = place_preview(
+        app,
+        &preview,
+        &anchor.edge,
+        anchor.anchor_x,
+        anchor.anchor_y,
+        anchor.height,
+    );
+}
+
 pub(crate) fn remember_target(app: &AppHandle) {
     let pid = get_active_window().ok().map(|v| v.process_id).unwrap_or(0);
     if pid != 0 && pid != std::process::id() as u64 {
@@ -291,7 +324,9 @@ pub(crate) fn show_picker(app: &AppHandle) {
                 .find(|monitor| cursor_on_monitor(*cursor, *monitor.position(), *monitor.size()))
         });
         let scale = monitor.as_ref().map(|m| m.scale_factor()).unwrap_or(1.0);
-        let width = if picker_prefs.hover_preview || picker_prefs.default_sidebar_open {
+        // Hover previews live in a separate window now; only the expanded
+        // in-window details sidebar still needs the extra width.
+        let width = if picker_prefs.default_sidebar_open {
             650.0
         } else {
             350.0
@@ -498,6 +533,7 @@ pub(crate) async fn show_preview(
     anchor_x: f64,
     anchor_y: f64,
 ) -> Result<(), String> {
+    let reuse = app.get_webview_window("preview").is_some();
     let preview = if let Some(window) = app.get_webview_window("preview") {
         window
     } else {
@@ -524,7 +560,26 @@ pub(crate) async fn show_preview(
     };
     #[cfg(target_os = "windows")]
     apply_popup_chrome(&preview);
-    place_preview(&app, &preview, &edge, anchor_x, anchor_y, 120.0)?;
+    // Reuse the current window height so switching rows does not flash a
+    // 120px window before the card reports its real size.
+    let height = if reuse {
+        preview
+            .outer_size()
+            .ok()
+            .map(|size| size.height as f64 / preview.scale_factor().unwrap_or(1.0))
+            .unwrap_or(120.0)
+    } else {
+        120.0
+    };
+    place_preview(&app, &preview, &edge, anchor_x, anchor_y, height)?;
+    if let Ok(mut anchor) = preview_anchor().lock() {
+        *anchor = Some(PreviewAnchor {
+            edge: edge.clone(),
+            anchor_x,
+            anchor_y,
+            height,
+        });
+    }
     preview.show().map_err(err)?;
     preview
         .emit(
@@ -599,10 +654,22 @@ pub(crate) fn resize_preview(
     height: f64,
 ) -> Result<(), String> {
     let preview = app.get_webview_window("preview").ok_or("预览窗口不可用")?;
-    place_preview(&app, &preview, &edge, anchor_x, anchor_y, height)
+    place_preview(&app, &preview, &edge, anchor_x, anchor_y, height)?;
+    if let Ok(mut anchor) = preview_anchor().lock() {
+        *anchor = Some(PreviewAnchor {
+            edge,
+            anchor_x,
+            anchor_y,
+            height,
+        });
+    }
+    Ok(())
 }
 #[tauri::command]
 pub(crate) fn hide_preview(app: AppHandle) -> Result<(), String> {
+    if let Ok(mut anchor) = preview_anchor().lock() {
+        *anchor = None;
+    }
     if let Some(window) = app.get_webview_window("preview") {
         window.hide().map_err(err)?;
     }

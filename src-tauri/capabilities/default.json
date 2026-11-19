@@ -1,1 +1,1 @@
-{"identifier":"default","description":"CPaste windows","windows":["main","settings","preview","rules"],"permissions":["core:default","global-shortcut:default"]}
+{"identifier":"default","description":"CPaste windows","windows":["main","settings","preview","rules"],"permissions":["core:default","core:window:allow-start-dragging","global-shortcut:default"]}
