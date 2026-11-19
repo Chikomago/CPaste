@@ -538,7 +538,9 @@ export function Picker() {
       if(!shortcut)return;
       const bare=shortcut.replace(/(?:CommandOrControl|Command|Control)\+/g,'');
       if(navigator.userAgent.includes('Windows')){
-        const compact=compactShortcut(bare);
+        // Keep Ctrl in the hint: it needs its own CTL keycap just like ALT/SFT,
+        // instead of being silently stripped away.
+        const compact=compactShortcut(shortcut);
         button.dataset.shortcutHint=compact.key;
         if(compact.mods)button.dataset.shortcutMods=compact.mods;
       }else{

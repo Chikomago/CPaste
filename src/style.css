@@ -545,9 +545,12 @@ body.rule-menu-root{background:transparent;overflow:hidden}
 .clip-details-actions .clip-quick-actions-dropdown .quick-rule-main:hover:not(:disabled),
 .clip-details-actions .clip-quick-actions-dropdown .media-quick-tools>button:hover:not(:disabled){background:var(--hover);color:var(--text)}
 button[data-shortcut-hint]{position:relative}
-/* Windows keycap: primary key fills the button, modifiers sit in a small badge. */
+/* Windows keycap: every modifier gets its own labelled top keycap (CTL/ALT/SFT/WIN),
+   the primary key fills the lower solid keycap. Two distinct caps keep modifiers
+   from ever being mistaken for a single primary letter. */
 button[data-shortcut-hint]::after{content:attr(data-shortcut-hint);position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.55);border-radius:inherit;background:var(--accent-fill);color:#fff;font:inherit;font-size:12px;font-weight:700;line-height:1;letter-spacing:.01em;white-space:nowrap;pointer-events:none}
-button[data-shortcut-mods]::before{content:attr(data-shortcut-mods);position:absolute;top:1px;left:1px;z-index:4;max-width:calc(100% - 2px);padding:0 2px;border-radius:3px;background:rgba(0,0,0,.42);color:#fff;font:inherit;font-size:7px;font-weight:700;line-height:10px;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+button[data-shortcut-mods]::after{padding-top:9px;font-size:10px}
+button[data-shortcut-mods]::before{content:attr(data-shortcut-mods);position:absolute;top:0;left:0;right:0;height:9px;z-index:4;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.45);border-radius:inherit;border-bottom-left-radius:0;border-bottom-right-radius:0;background:rgba(0,0,0,.55);color:#fff;font:inherit;font-size:6px;font-weight:800;line-height:1;letter-spacing:-.05em;white-space:nowrap;overflow:hidden;pointer-events:none}
 button[data-shortcut-hint]>svg{visibility:hidden}
 button[data-shortcut-hint]:hover::after{background:var(--accent-fill)}
 .row-actions:has([data-shortcut-hint]){opacity:1;visibility:visible;pointer-events:auto}

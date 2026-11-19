@@ -11,18 +11,19 @@ export const displayShortcut = (value: string) => {
   return parts.map(part => (mac ? macNames : winNames)[part] || part).join(mac ? '' : '+');
 };
 
-// Windows keycap hints: the primary key stays a single character, while
-// modifiers use multi-letter badges (SH / ALT / CTL / WIN). Mapping Shift to a
-// bare "S" would make Shift+S render as "SS", indistinguishable from a lone S.
-// No macOS modifier glyphs (⌃⌥⇧⌘) are used here.
-const winModifierLabels: Record<string, string> = { Control: 'CTL', Alt: 'ALT', Shift: 'SH', Command: 'WIN', Super: 'WIN' };
+// Windows keycap hints: the primary key is a single character, while EVERY
+// modifier gets its own three-letter keycap (CTL / ALT / SFT / WIN). None of
+// them may collapse to a single letter: Shift+S would read "SS", and Alt/Ctrl
+// would be indistinguishable from the primary keys A and C. No macOS modifier
+// glyphs (⌃⌥⇧⌘) are used here.
+const winModifierLabels: Record<string, string> = { Control: 'CTL', Alt: 'ALT', Shift: 'SFT', Command: 'WIN', Super: 'WIN' };
 const winKeyLabels: Record<string, string> = { Enter: '↵', Space: '␣', Delete: '⌫', Backspace: '⌫', Up: '↑', Down: '↓', Left: '←', Right: '→' };
 export const compactShortcut = (value: string) => {
   if (!value) return { key: '', mods: '' };
   const parts = value.replace('CommandOrControl', navigator.userAgent.includes('Mac') ? 'Command' : 'Control').split('+');
   const mods = parts.filter(part => winModifierLabels[part]).map(part => winModifierLabels[part]);
   const key = [...parts].reverse().find(part => !winModifierLabels[part]) ?? '';
-  return { key: winKeyLabels[key] ?? key, mods: mods.join(' ') };
+  return { key: winKeyLabels[key] ?? key, mods: mods.join('·') };
 };
 export function shortcutFromKey(e: React.KeyboardEvent, allowBare = false): string | null {
   if (['Control', 'Meta', 'Alt', 'Shift'].includes(e.key)) return null;
