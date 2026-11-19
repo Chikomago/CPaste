@@ -607,6 +607,10 @@ pub(crate) async fn show_preview(
             .inner_size(292.0, 120.0)
             .decorations(false)
             .transparent(true)
+            // Match the main panel's native shadow. The card fills the whole
+            // window (no padding), so the shadow hugs its edge instead of
+            // appearing as a detached grey frame. On Windows apply_popup_chrome
+            // turns it off, just like the main panel.
             .shadow(true)
             .always_on_top(true)
             .skip_taskbar(true)
