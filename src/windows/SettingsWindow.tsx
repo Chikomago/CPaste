@@ -36,6 +36,8 @@ export const categories: { id: Category; label: string; icon: React.ComponentTyp
 ];
 export function SettingsWindow() {
   const [prefs, setPrefs] = useState<Preferences>(defaults);
+  const isMac = navigator.userAgent.includes('Mac');
+  const availableCategories = isMac ? categories : categories.filter(c => c.id !== 'permissions');
   const [clearOpen, setClearOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [category, setCategory] = useState<Category>('appearance');
@@ -103,10 +105,10 @@ export function SettingsWindow() {
     {clearOpen && <ConfirmDialog title={tr('清空所有记录')} description={tr('将删除全部剪贴板记录，包括置顶和收藏，无法恢复。设置和系统剪贴板不受影响。')} confirmLabel={tr('清空所有记录')} busy={clearing} onCancel={() => setClearOpen(false)} onConfirm={() => void clearHistory()}/>}
     <div className="settings-layout">
       <nav className="settings-nav" aria-label={tr('设置分类')}>
-        <div className="settings-nav-items">{categories.map(c => <button key={c.id} className={category === c.id ? 'active' : ''} onClick={() => setCategory(c.id)}><c.icon size={17}/>{tr(c.label)}</button>)}</div>
+        <div className="settings-nav-items">{availableCategories.map(c => <button key={c.id} className={category === c.id ? 'active' : ''} onClick={() => setCategory(c.id)}><c.icon size={17}/>{tr(c.label)}</button>)}</div>
         <div className="settings-storage" aria-live="polite"><Database size={14}/><strong>{databaseSize === null ? '—' : formatBytes(databaseSize)} / {prefs.max_storage_mb === 0 ? tr('无限制') : formatBytes(prefs.max_storage_mb * 1048576)}</strong></div>
       </nav>
-      <main className="settings-body"><h2>{tr(categories.find(c => c.id === category)?.label || '')}</h2>
+      <main className="settings-body"><h2>{tr(availableCategories.find(c => c.id === category)?.label || '')}</h2>
         {category === 'developer' && <><Toggle label={tr('诊断模式')} help={tr('记录设备、系统、版本、操作和耗时，不记录剪贴板内容')} checked={prefs.developer_mode} onChange={value=>void save({...prefs,developer_mode:value})}/><Setting label={tr('诊断日志')} help={tr('日志仅保存在本机，最多约 20 MB')}><button type="button" className="clear-history-button" onClick={()=>void call('export_diagnostics').catch(error=>setNotice(String(error)))}>{tr('导出日志')}</button></Setting></>}
         {category === 'rules' && <><Toggle label={tr('启用规则')} checked={prefs.rules_enabled} onChange={value=>void save({...prefs,rules_enabled:value})}/>{prefs.rules_enabled && <RuleManager/>}</>}
         {category === 'appearance' && <>
@@ -154,10 +156,10 @@ export function SettingsWindow() {
           <div className="app-list-search"><Search size={15}/><input aria-label={tr('搜索本机应用')} placeholder={tr('搜索应用')} value={appInput} onChange={event => setAppInput(event.target.value)}/></div>
           <div className="installed-app-list">{installedApps.filter(app => !appInput.trim() || app.name.toLocaleLowerCase().includes(appInput.trim().toLocaleLowerCase())).map(app => <label className="installed-app-row" key={app.path}><InstalledAppIcon app={app}/><span className="installed-app-name" title={app.path}>{app.name}</span><input type="checkbox" aria-label={isEnglish() ? `Exclude ${app.name}` : `不记录 ${app.name}`} checked={isAppBlocked(app)} onChange={() => toggleAppBlocked(app)}/></label>)}{prefs.excluded_apps.filter(rule => !installedApps.some(app => rule.toLocaleLowerCase() === app.name.toLocaleLowerCase() || rule.toLocaleLowerCase() === app.path.toLocaleLowerCase())).filter(rule => !appInput.trim() || rule.toLocaleLowerCase().includes(appInput.trim().toLocaleLowerCase())).map(rule => <label className="installed-app-row" key={rule}><AppWindow size={19}/><span className="installed-app-name" title={rule}>{rule}</span><input type="checkbox" aria-label={isEnglish() ? `Exclude ${rule}` : `不记录 ${rule}`} checked onChange={() => void save({ ...prefs, excluded_apps: prefs.excluded_apps.filter(value => value !== rule) })}/></label>)}{installedApps.length === 0 && <p className="settings-help">{tr('未读取到本机应用。重新打开设置后再试。') }</p>}</div>
         </>}
-        {category === 'permissions' && <>{navigator.userAgent.includes('Mac') ? <>
+        {category === 'permissions' && isMac && <>
           <Setting label={tr('辅助功能')} help={tr('用于粘贴到其他应用所需权限')}><button type="button" className="permission-button" onClick={() => void call<boolean>('open_system_permission', { kind: 'accessibility' }).then(setAccessibilityGranted).catch(error => setNotice(`无法请求辅助功能权限：${String(error)}`))}>{tr(accessibilityGranted ? '已开启' : '去开启')}</button></Setting>
           <Setting label={tr('完全磁盘访问')} help={tr('需在系统设置中手动开启')}><button type="button" className="permission-button" onClick={() => void call<boolean>('open_system_permission', { kind: 'full_disk' }).then(setFullDiskGranted).catch(error => setNotice(`无法打开系统设置：${String(error)}`))}>{tr(fullDiskGranted === true ? '已开启' : fullDiskGranted === false ? '去开启' : '打开系统设置')}</button></Setting>
-        </> : <p className="settings-help">{tr('Windows 无需单独开启这两项权限。') }</p>}</>}
+        </>}
         {category === 'startup' && <>
           <Toggle label={tr('轻量模式')} help={tr('隐藏5秒后暂停界面刷新，保留窗口和图片缓存')} checked={prefs.lightweight_mode} onChange={value => void save({ ...prefs, lightweight_mode: value })}/>
           <Toggle label={tr('在菜单栏／托盘显示')} help={tr('关闭后仍可用快捷键打开面板')} checked={prefs.show_tray_icon} onChange={v => void save({ ...prefs, show_tray_icon: v })}/>

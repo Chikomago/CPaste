@@ -183,6 +183,7 @@ pub(crate) fn activate_preferences(
     }
     let tray = app.tray_by_id("main").ok_or("菜单栏图标不可用")?;
     tray.set_visible(preferences.show_tray_icon).map_err(err)?;
+    crate::windows::refresh_tray_icon(app);
     if old.language != preferences.language {
         tray.set_menu(Some(
             build_tray_menu(app, &preferences, s.listening.load(Ordering::SeqCst)).map_err(err)?,

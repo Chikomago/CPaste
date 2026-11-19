@@ -169,6 +169,48 @@ pub(crate) mod outside_click {
     }
 }
 
+/// Applies the popup chrome shared by every borderless window.
+///
+/// On Windows an undecorated window with `shadow(true)` gets a 1px light
+/// border painted by DWM, which shows up as a white line around the
+/// translucent panels. The panel draws its own shadow in CSS, so the native
+/// shadow is turned off and the corners are rounded by DWM instead.
+#[cfg(target_os = "windows")]
+pub(crate) fn apply_popup_chrome(window: &tauri::WebviewWindow) {
+    let _ = window.set_shadow(false);
+    set_rounded_corners(window);
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn tray_icon(app: &AppHandle) -> tauri::image::Image<'static> {
+    // The tray icon is white so it reads well on the dark taskbar. Windows
+    // light theme paints a light taskbar, where a white glyph disappears, so
+    // invert the RGB channels for that case.
+    let light_theme = app
+        .get_webview_window("main")
+        .and_then(|window| window.theme().ok())
+        .is_some_and(|theme| matches!(theme, tauri::Theme::Light));
+    let mut rgba = include_bytes!("../icons/tray-white.rgba").to_vec();
+    if light_theme {
+        for pixel in rgba.chunks_exact_mut(4) {
+            pixel[0] = 255 - pixel[0];
+            pixel[1] = 255 - pixel[1];
+            pixel[2] = 255 - pixel[2];
+        }
+    }
+    tauri::image::Image::new_owned(rgba, 64, 64)
+}
+
+/// Re-evaluates the tray glyph after the system theme may have changed.
+pub(crate) fn refresh_tray_icon(app: &AppHandle) {
+    #[cfg(target_os = "windows")]
+    if let Some(tray) = app.tray_by_id("main") {
+        let _ = tray.set_icon(Some(tray_icon(app)));
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+}
+
 #[cfg(target_os = "windows")]
 pub(crate) fn set_rounded_corners(window: &tauri::WebviewWindow) {
     const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
@@ -229,6 +271,7 @@ pub(crate) fn full_monitor_area(monitor: &tauri::Monitor) -> tauri::PhysicalRect
 }
 pub(crate) fn show_picker(app: &AppHandle) {
     crate::diagnostics::record("picker_show", serde_json::json!({}));
+    refresh_tray_icon(app);
     remember_target(app);
     if let Some(state) = app.try_state::<Arc<State>>() {
         state.picker_pinned.store(false, Ordering::SeqCst);
@@ -308,7 +351,7 @@ pub(crate) fn show_picker(app: &AppHandle) {
             } else {
                 let _ = window.center();
             }
-            let _ = window.set_focusable(false);
+            let _ = window.set_focusable(true);
             let _ = window.emit(
                 "picker-opening",
                 PickerOpening {
@@ -341,6 +384,10 @@ pub(crate) fn reveal_picker(app: AppHandle, edge: String) -> Result<(), String> 
     {
         window.show().map_err(err)?;
         set_rounded_corners(&window);
+        // The panel is focusable on Windows so the page receives wheel and
+        // keyboard events (scrolling, Ctrl shortcut hints, dragging). Focus is
+        // best-effort: the foreground lock can legitimately refuse it.
+        let _ = window.set_focus();
         window.emit("picker-opened", edge).map_err(err)?;
     }
     Ok(())
@@ -369,14 +416,13 @@ pub(crate) fn hide_picker_window(app: &AppHandle) -> Result<(), String> {
 }
 #[tauri::command]
 pub(crate) fn set_picker_editing(app: AppHandle, editing: bool) -> Result<(), String> {
+    // The picker stays focusable on Windows now, so editing only needs to
+    // bring it back to the foreground. Leaving focus alone when editing ends
+    // avoids handing the foreground back while the user is still interacting.
     #[cfg(target_os = "windows")]
-    if let Some(window) = app.get_webview_window("main") {
-        window.set_focusable(editing).map_err(err)?;
-        if editing {
-            window.set_focus().map_err(err)?;
-        } else if let Some(state) = app.try_state::<Arc<State>>() {
-            let target = state.target_pid.load(Ordering::SeqCst);
-            let _ = activate_target(&state, target);
+    if editing {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.set_focus();
         }
     }
     #[cfg(target_os = "macos")]
@@ -476,6 +522,8 @@ pub(crate) async fn show_preview(
             .build()
             .map_err(err)?
     };
+    #[cfg(target_os = "windows")]
+    apply_popup_chrome(&preview);
     place_preview(&app, &preview, &edge, anchor_x, anchor_y, 120.0)?;
     preview.show().map_err(err)?;
     preview

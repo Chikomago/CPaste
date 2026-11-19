@@ -53,6 +53,20 @@ mod windows;
 use tauri_nspanel::{tauri_panel, PanelLevel, WebviewWindowExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+/// The tray glyph: white by default, inverted on a light Windows taskbar, and
+/// marked as a macOS template so the menu bar tints it automatically.
+fn tray_image(app: &tauri::AppHandle) -> tauri::image::Image<'static> {
+    #[cfg(target_os = "windows")]
+    {
+        crate::windows::tray_icon(app)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        tauri::image::Image::new(include_bytes!("../icons/tray-white.rgba"), 64, 64)
+    }
+}
+
 #[cfg(target_os = "macos")]
 tauri_panel! {
     panel!(ClipboardPanel {
@@ -127,7 +141,29 @@ pub fn run() {
                     [],
                 )?;
             }
-            let p = load_prefs(&c);
+            let mut p = load_prefs(&c);
+            // Previous builds defaulted to single-click paste. Move existing
+            // installs onto the new double-click default once; later changes
+            // made by the user are kept.
+            let paste_default_migrated = c
+                .query_row(
+                    "SELECT value FROM app_settings WHERE key='paste_double_click_default'",
+                    [],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+            if !paste_default_migrated {
+                p.paste_on_single_click = false;
+                c.execute(
+                    "INSERT INTO app_settings(key,value) VALUES('preferences',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    [serde_json::to_string(&p).map_err(|error| error.to_string())?],
+                )?;
+                c.execute(
+                    "INSERT INTO app_settings(key,value) VALUES('paste_double_click_default','1')",
+                    [],
+                )?;
+            }
             diagnostics::configure(app.handle(), p.developer_mode)?;
             let s = Arc::new(State {
                 db: Mutex::new(c),
@@ -179,7 +215,7 @@ pub fn run() {
             }
             #[cfg(target_os = "windows")]
             if let Some(window) = app.get_webview_window("main") {
-                windows::set_rounded_corners(&window);
+                windows::apply_popup_chrome(&window);
                 windows::outside_click::install(app.handle());
             }
             if let Err(error) = app.global_shortcut().register(p.shortcut.as_str()) {
@@ -187,12 +223,12 @@ pub fn run() {
             }
             let menu = build_tray_menu(app.handle(), &p, true)?;
             let menu_state = s.clone();
-            let tray = TrayIconBuilder::with_id("main")
-                .icon(tauri::image::Image::new(
-                    include_bytes!("../icons/tray-white.rgba"),
-                    64,
-                    64,
-                ))
+            let builder = TrayIconBuilder::with_id("main").icon(tray_image(app.handle()));
+            // A template image lets macOS tint the glyph for light and dark
+            // menu bars automatically.
+            #[cfg(target_os = "macos")]
+            let builder = builder.icon_as_template(true);
+            let tray = builder
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id.as_ref() {

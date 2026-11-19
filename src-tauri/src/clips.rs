@@ -1,11 +1,11 @@
 use crate::models::{Clip, State};
 use crate::privacy::{contains_sensitive, mask_sensitive};
 use crate::state::{db, err, prefs};
-#[cfg(target_os = "windows")]
-use base64::Engine;
 use rusqlite::OptionalExtension;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(target_os = "macos")]
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 use tokio::sync::Semaphore;
 
 // Keep large image allocations off the UI thread and avoid simultaneous
@@ -267,25 +267,9 @@ pub(crate) fn app_icon_png(source_path: &str) -> Option<Vec<u8>> {
     bytes
 }
 #[cfg(target_os = "windows")]
-pub(crate) fn app_icon_png(source_path: &str) -> Option<Vec<u8>> {
-    if !std::path::Path::new(source_path).is_file() {
-        return None;
-    }
-    let script = "Add-Type -AssemblyName System.Drawing; $icon=[System.Drawing.Icon]::ExtractAssociatedIcon($args[0]); if($null -ne $icon){$m=New-Object System.IO.MemoryStream; $icon.ToBitmap().Save($m,[System.Drawing.Imaging.ImageFormat]::Png); [Convert]::ToBase64String($m.ToArray())}";
-    let output = std::process::Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            script,
-            source_path,
-        ])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    base64::engine::general_purpose::STANDARD
-        .decode(String::from_utf8_lossy(&output.stdout).trim())
-        .ok()
+pub(crate) fn app_icon_png(_source_path: &str) -> Option<Vec<u8>> {
+    // Extracting an executable icon used to shell out to PowerShell once per
+    // source app, which flashed a console window for every row in the privacy
+    // list. The UI falls back to a letter badge instead, so nothing spawns.
+    None
 }

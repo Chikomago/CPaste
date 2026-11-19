@@ -9,17 +9,21 @@ import { tr } from '../i18n';
 const appIconCache = new Map<string, Promise<string | null>>();
 let appIconGeneration=0;
 export function resetAppIconCache(){appIconCache.clear();appIconGeneration++;}
+// Windows has no cheap way to read an executable icon without spawning a
+// helper process, so the UI shows a letter badge there instead.
+const iconLetter = (name?: string) => (Array.from(name?.trim() || '?')[0] || '?').toUpperCase();
 export function AppIcon({ clip }: { clip: Clip }) {
   const generation=appIconGeneration;
   const [icon, setIcon] = useState<string | null>(null);
-  useEffect(() => { const path = clip.source_path; setIcon(null); if (!path) return; let active = true; let request = appIconCache.get(path); if (!request) { request = call<string | null>('get_app_icon_path', { sourcePath: path }).catch(() => null); appIconCache.set(path, request); } void request.then(data => { if (active) setIcon(data); }); return () => { active = false; }; }, [clip.source_path,generation]);
-  return <span className="app-icon" title={clip.source_app || tr('未知应用')} aria-label={clip.source_app || tr('未知应用')}>{icon ? <img src={convertFileSrc(icon)} alt=""/> : <AppWindow size={19}/>}</span>;
+  useEffect(() => { const path = clip.source_path; setIcon(null); if (!path || navigator.userAgent.includes('Windows')) return; let active = true; let request = appIconCache.get(path); if (!request) { request = call<string | null>('get_app_icon_path', { sourcePath: path }).catch(() => null); appIconCache.set(path, request); } void request.then(data => { if (active) setIcon(data); }); return () => { active = false; }; }, [clip.source_path,generation]);
+  return <span className="app-icon" title={clip.source_app || tr('未知应用')} aria-label={clip.source_app || tr('未知应用')}>{icon ? <img src={convertFileSrc(icon)} alt=""/> : navigator.userAgent.includes('Windows') && clip.source_app ? <span className="app-icon-letter" aria-hidden="true">{iconLetter(clip.source_app)}</span> : <AppWindow size={19}/>}</span>;
 }
 export function InstalledAppIcon({ app }: { app: InstalledApp }) {
   const host = useRef<HTMLSpanElement>(null);
   const [icon, setIcon] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
+    if (navigator.userAgent.includes('Windows')) return;
     const observer = new IntersectionObserver(entries => {
       if (!entries[0]?.isIntersecting) return;
       observer.disconnect();
@@ -30,7 +34,7 @@ export function InstalledAppIcon({ app }: { app: InstalledApp }) {
     if (host.current) observer.observe(host.current);
     return () => { active = false; observer.disconnect(); };
   }, [app.path,appIconGeneration]);
-  return <span ref={host} className="app-icon" aria-hidden="true">{icon ? <img src={convertFileSrc(icon)} alt=""/> : <AppWindow size={19}/>}</span>;
+  return <span ref={host} className="app-icon" aria-hidden="true">{icon ? <img src={convertFileSrc(icon)} alt=""/> : navigator.userAgent.includes('Windows') ? <span className="app-icon-letter">{iconLetter(app.name)}</span> : <AppWindow size={19}/>}</span>;
 }
 export function ImageThumbnail({ clip }: { clip: Clip }) {
   const generation=thumbnailCache.generation();

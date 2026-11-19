@@ -71,7 +71,7 @@ impl Default for Preferences {
             default_filter: "all".into(),
             default_plain_copy: false,
             default_copy_file_paths: false,
-            paste_on_single_click: true,
+            paste_on_single_click: false,
             launch_at_login: false,
             show_tray_icon: true,
             show_dock_icon: true,

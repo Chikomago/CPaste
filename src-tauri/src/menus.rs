@@ -252,6 +252,8 @@ pub(crate) async fn show_rule_menu(
             .build()
             .map_err(err)?
     };
+    #[cfg(target_os = "windows")]
+    crate::windows::apply_popup_chrome(&window);
     #[cfg(target_os = "macos")]
     {
         let window = window.clone();
