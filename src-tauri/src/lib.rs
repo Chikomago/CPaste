@@ -180,6 +180,7 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             if let Some(window) = app.get_webview_window("main") {
                 windows::set_rounded_corners(&window);
+                windows::outside_click::install(app.handle());
             }
             if let Err(error) = app.global_shortcut().register(p.shortcut.as_str()) {
                 eprintln!("CPaste 快捷键注册失败：{error}");

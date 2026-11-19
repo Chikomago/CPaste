@@ -41,6 +41,134 @@ unsafe extern "system" {
     fn GetForegroundWindow() -> *mut std::ffi::c_void;
     fn SetForegroundWindow(hwnd: *mut std::ffi::c_void) -> i32;
 }
+
+/// On Windows the picker is deliberately non-focusable so showing it does not
+/// steal focus from the app the user is pasting into. That also means it never
+/// receives a `Focused(false)` event, so a click outside the window has to be
+/// detected globally.
+#[cfg(target_os = "windows")]
+pub(crate) mod outside_click {
+    use crate::models::State;
+    use crate::windows::hide_picker_window;
+    use std::sync::{atomic::Ordering, Arc, OnceLock};
+    use tauri::{AppHandle, Manager};
+
+    static APP: OnceLock<AppHandle> = OnceLock::new();
+
+    const WH_MOUSE_LL: i32 = 14;
+    const HC_ACTION: i32 = 0;
+    const WM_LBUTTONDOWN: usize = 0x0201;
+    const WM_RBUTTONDOWN: usize = 0x0204;
+    const WM_MBUTTONDOWN: usize = 0x0207;
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Point {
+        x: i32,
+        y: i32,
+    }
+    #[repr(C)]
+    #[allow(dead_code)]
+    struct MouseHookData {
+        pt: Point,
+        mouse_data: u32,
+        flags: u32,
+        time: u32,
+        extra: usize,
+    }
+    #[repr(C)]
+    struct Rect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+
+    type HookProc = unsafe extern "system" fn(i32, usize, isize) -> isize;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn SetWindowsHookExW(
+            hook_type: i32,
+            callback: HookProc,
+            module: *mut std::ffi::c_void,
+            thread_id: u32,
+        ) -> *mut std::ffi::c_void;
+        fn CallNextHookEx(
+            hook: *mut std::ffi::c_void,
+            code: i32,
+            wparam: usize,
+            lparam: isize,
+        ) -> isize;
+        fn GetWindowRect(hwnd: *mut std::ffi::c_void, rect: *mut Rect) -> i32;
+    }
+
+    unsafe extern "system" fn on_mouse(code: i32, wparam: usize, lparam: isize) -> isize {
+        if code == HC_ACTION && matches!(wparam, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN) {
+            if let Some(app) = APP.get() {
+                let point = unsafe { (*(lparam as *const MouseHookData)).pt };
+                let app = app.clone();
+                let (x, y) = (point.x, point.y);
+                tauri::async_runtime::spawn(async move {
+                    close_on_outside_click(&app, x, y);
+                });
+            }
+        }
+        unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
+    }
+
+    fn close_on_outside_click(app: &AppHandle, x: i32, y: i32) {
+        let Some(picker) = app.get_webview_window("main") else {
+            return;
+        };
+        if !matches!(picker.is_visible(), Ok(true)) {
+            return;
+        }
+        if app
+            .try_state::<Arc<State>>()
+            .is_some_and(|state| state.picker_pinned.load(Ordering::SeqCst))
+        {
+            return;
+        }
+        // Keep the picker open for clicks on any of its own windows (preview,
+        // rule menu, settings, ...).
+        for (_, window) in app.webview_windows() {
+            if !matches!(window.is_visible(), Ok(true)) {
+                continue;
+            }
+            let Ok(hwnd) = window.hwnd() else {
+                continue;
+            };
+            let mut rect = Rect {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            };
+            if unsafe { GetWindowRect(hwnd.0, &mut rect) } != 0
+                && x >= rect.left
+                && x < rect.right
+                && y >= rect.top
+                && y < rect.bottom
+            {
+                return;
+            }
+        }
+        let _ = hide_picker_window(app);
+    }
+
+    pub(crate) fn install(app: &AppHandle) {
+        let _ = APP.set(app.clone());
+        let hook = unsafe { SetWindowsHookExW(WH_MOUSE_LL, on_mouse, std::ptr::null_mut(), 0) };
+        if hook.is_null() {
+            eprintln!(
+                "CPaste 无法安装鼠标监听：{}",
+                std::io::Error::last_os_error()
+            );
+        }
+    }
+}
+
 #[cfg(target_os = "windows")]
 pub(crate) fn set_rounded_corners(window: &tauri::WebviewWindow) {
     const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
