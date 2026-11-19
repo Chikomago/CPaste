@@ -1,0 +1,110 @@
+name: Publish Windows portable package
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Published release to attach the portable zip to, for example v1.0.0'
+        required: true
+        default: 'v1.0.0'
+      source_ref:
+        description: 'Source branch or commit to build'
+        default: 'main'
+        required: true
+
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+      - id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          python3 scripts/check-release.py "$RELEASE_TAG"
+          python3 scripts/test-release.py
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = false
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.5.1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: x86_64-pc-windows-msvc
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:segmentation
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked --target x86_64-pc-windows-msvc
+      - name: Build the release binary
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis -- --locked
+      - name: Package the portable zip
+        run: python scripts/stage-portable-windows.py x86_64-pc-windows-msvc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-portable
+          path: release-assets/*
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-portable
+          path: release-assets
+      - name: Attach the portable zip to the release
+        run: |
+          source scripts/release-retry.sh
+          test "$(find release-assets -type f | wc -l)" -eq 1
+          retry gh release upload "$RELEASE_TAG" release-assets/*.zip --clobber
+      - name: Mention the portable build in the release notes
+        run: |
+          source scripts/release-retry.sh
+          retry gh release view "$RELEASE_TAG" --json body --jq .body > current-notes.md
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          version = os.environ['RELEASE_TAG'].removeprefix('v')
+          notes = Path('current-notes.md')
+          body = notes.read_text()
+          if 'Windows 绿色版' not in body:
+              body += f"""
+          ### Windows 绿色版 / Portable
+          新增免安装压缩包 `CPaste_{version}_windows_x64_portable.zip`：解压后运行 `CPaste.exe` 即可，无需安装。数据目录与自动更新的差异见压缩包内 `README-PORTABLE.txt`；安装版与 macOS 资产不受影响。
+          Added a no-install zip `CPaste_{version}_windows_x64_portable.zip`: extract and run `CPaste.exe`. See `README-PORTABLE.txt` inside the zip for data-location and updater notes. The installer and macOS assets are unchanged.
+          """
+              notes.write_text(body)
+          PY
+          retry gh release edit "$RELEASE_TAG" --notes-file current-notes.md

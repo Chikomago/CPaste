@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 SCRIPT = Path(__file__).with_name('publish-update-manifest.py')
 STAGE_SCRIPT = Path(__file__).with_name('stage-release-assets.py')
+PORTABLE_SCRIPT = Path(__file__).with_name('stage-portable-windows.py')
 
 
 class ReleaseManifestTests(unittest.TestCase):
@@ -80,6 +81,38 @@ class ReleaseManifestTests(unittest.TestCase):
                     self.assertEqual(names, {f'CPaste_0.1.1_{platform}_{arch}{ext}' for ext in extensions})
                 finally:
                     os.chdir(previous)
+
+    def test_portable_zip_contains_binary_licenses_and_notice(self):
+        from zipfile import ZipFile
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'package.json').write_text('{"version":"0.1.1"}')
+            binary = root / 'src-tauri' / 'target' / 'x86_64-pc-windows-msvc' / 'release' / 'CPaste.exe'
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b'fixture-binary')
+            (root / 'LICENSE').write_text('fixture license')
+            (root / 'licenses').mkdir()
+            (root / 'licenses' / 'example-LICENSE').write_text('fixture')
+            previous = Path.cwd()
+            try:
+                os.chdir(root)
+                with patch('sys.argv', [str(PORTABLE_SCRIPT), 'x86_64-pc-windows-msvc']):
+                    runpy.run_path(str(PORTABLE_SCRIPT), run_name='__main__')
+                with ZipFile('release-assets/CPaste_0.1.1_windows_x64_portable.zip') as archive:
+                    names = set(archive.namelist())
+                    notice = archive.read(
+                        'CPaste_0.1.1_windows_x64_portable/README-PORTABLE.txt')
+            finally:
+                os.chdir(previous)
+            prefix = 'CPaste_0.1.1_windows_x64_portable/'
+            self.assertEqual(names, {
+                prefix + 'CPaste.exe',
+                prefix + 'LICENSE',
+                prefix + 'licenses/example-LICENSE',
+                prefix + 'README-PORTABLE.txt',
+            })
+            self.assertIn(b'0.1.1', notice)
+            self.assertIn('绿色版'.encode('utf-8'), notice)
 
 
 if __name__ == '__main__':

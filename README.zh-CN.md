@@ -8,7 +8,9 @@
 
 完全本地（除下载词典和更新外）无任何联网权限。
 
-[下载安装包](https://github.com/Chikomago/CPaste/releases/latest)
+[下载安装包](https://github.com/Chikomago/CPaste/releases/latest) · [Windows 绿色版（免安装）](https://github.com/Chikomago/CPaste/releases/latest)
+
+同一 Release 里还提供 Windows 免安装压缩包：解压后运行 `CPaste.exe` 即可。数据仍保存在 Tauri 应用数据目录（`%APPDATA%\app.cpaste.desktop\`），且不参与自动更新清单，详见压缩包内 `README-PORTABLE.txt`。
 
 ## 功能
 
