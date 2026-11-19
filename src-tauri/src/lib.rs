@@ -69,6 +69,14 @@ tauri_panel! {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(
+            |app, _arguments, _cwd| {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    show_picker(&app);
+                });
+            },
+        ))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::Updates::default())
         .plugin(
