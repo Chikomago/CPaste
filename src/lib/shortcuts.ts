@@ -11,19 +11,17 @@ export const displayShortcut = (value: string) => {
   return parts.map(part => (mac ? macNames : winNames)[part] || part).join(mac ? '' : '+');
 };
 
-// Windows keycap hints: the primary key is a single character, while EVERY
-// modifier gets its own three-letter keycap (CTL / ALT / SFT / WIN). None of
-// them may collapse to a single letter: Shift+S would read "SS", and Alt/Ctrl
-// would be indistinguishable from the primary keys A and C. No macOS modifier
-// glyphs (⌃⌥⇧⌘) are used here.
-const winModifierLabels: Record<string, string> = { Control: 'CTL', Alt: 'ALT', Shift: 'SFT', Command: 'WIN', Super: 'WIN' };
-const winKeyLabels: Record<string, string> = { Enter: '↵', Space: '␣', Delete: '⌫', Backspace: '⌫', Up: '↑', Down: '↓', Left: '←', Right: '→' };
-export const compactShortcut = (value: string) => {
-  if (!value) return { key: '', mods: '' };
-  const parts = value.replace('CommandOrControl', navigator.userAgent.includes('Mac') ? 'Command' : 'Control').split('+');
-  const mods = parts.filter(part => winModifierLabels[part]).map(part => winModifierLabels[part]);
-  const key = [...parts].reverse().find(part => !winModifierLabels[part]) ?? '';
-  return { key: winKeyLabels[key] ?? key, mods: mods.join('·') };
+// Windows keycaps reuse the macOS glyphs, one-to-one: Ctrl is ⌃, Alt is ⌥,
+// Shift is ⇧ and the Windows key is ⌘. A single line such as "⌃⇧P" always fits
+// inside a 24px row button, and no modifier can be mistaken for a bare letter.
+const keyGlyphs: Record<string, string> = { Command: '⌘', Super: '⌘', Control: '⌃', Alt: '⌥', Shift: '⇧', Enter: '↵', Space: '␣', Delete: '⌫', Backspace: '⌫', Up: '↑', Down: '↓', Left: '←', Right: '→' };
+export const keycapShortcut = (value: string) => {
+  if (!value) return '';
+  return value
+    .split('+')
+    .map(part => part === 'CommandOrControl' ? 'Control' : part)
+    .map(part => keyGlyphs[part] ?? part)
+    .join('');
 };
 export function shortcutFromKey(e: React.KeyboardEvent, allowBare = false): string | null {
   if (['Control', 'Meta', 'Alt', 'Shift'].includes(e.key)) return null;

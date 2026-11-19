@@ -303,6 +303,12 @@ pub fn run() {
                         let _ = hide_preview(window.app_handle().clone());
                         let _ = hide_picker_window(window.app_handle());
                     }
+                    // Windows closes the picker from the global mouse hook
+                    // instead. Hiding on focus loss tore the panel down while it
+                    // was being dragged, and the moment the detached preview
+                    // window was created (it activates itself), which made Space
+                    // previews look like they closed the picker.
+                    #[cfg(target_os = "macos")]
                     WindowEvent::Focused(false) => {
                         let pinned = window
                             .app_handle()
@@ -312,7 +318,6 @@ pub fn run() {
                             return;
                         }
                         let _ = hide_preview(window.app_handle().clone());
-                        #[cfg(target_os = "windows")]
                         let _ = hide_picker_window(window.app_handle());
                     }
                     WindowEvent::Moved(_) => {
