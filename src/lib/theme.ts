@@ -1,9 +1,15 @@
 import { Preferences } from '../types';
 
-export const applyTheme = (theme: Preferences['theme'], accent: string, disableAnimations = false) => {
+export const applyTheme = (theme: Preferences['theme'], accent: string, disableAnimations = false, fontFamily = '') => {
   const root = document.documentElement;
   root.dataset.disableAnimations = String(disableAnimations);
   root.dataset.theme = theme;
+  // Empty means the system default stack declared in :root. A chosen family is
+  // quoted so names with spaces work, followed by fallbacks; the backend
+  // rejects control characters and CSS delimiters before this value is stored.
+  const fallback = "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif";
+  const safeFont = fontFamily.replace(/["\\]/g, '');
+  root.style.setProperty('--app-font', safeFont ? `"${safeFont}", ${fallback}` : fallback);
   const hex = /^#[0-9a-f]{6}$/i.test(accent) ? accent : '#3569ed';
   const rgb = [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16) / 255);
   const max = Math.max(...rgb), min = Math.min(...rgb), delta = max - min;

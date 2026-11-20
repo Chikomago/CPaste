@@ -11,16 +11,22 @@ export const displayShortcut = (value: string) => {
   return parts.map(part => (mac ? macNames : winNames)[part] || part).join(mac ? '' : '+');
 };
 
-// Windows keycaps reuse the macOS glyphs one-to-one: Alt is ⌥, Shift is ⇧ and
-// the Windows key is ⌘. Ctrl is the held trigger key, so callers strip it before
-// formatting just like macOS strips ⌘; the remaining "⇧P" always fits a 24px
-// row button.
-const keyGlyphs: Record<string, string> = { Command: '⌘', Super: '⌘', Control: '⌃', Alt: '⌥', Shift: '⇧', Enter: '↵', Space: '␣', Delete: '⌫', Backspace: '⌫', Up: '↑', Down: '↓', Left: '←', Right: '→' };
+// One keycap renderer shared by macOS and Windows. The held trigger key is
+// stripped here (⌘ on macOS, Ctrl on Windows); every remaining key — whether it
+// carries a macOS name (Command/Option) or a Windows name (Control/Super/Win) —
+// is mapped through ONE glyph table, so both platforms render identically and
+// only the key-name → glyph mapping differs. This keeps a single CSS style
+// (button[data-shortcut-hint]) for both platforms.
+const keyGlyphs: Record<string, string> = { Command: '⌘', Super: '⌘', Win: '⌘', Meta: '⌘', Control: '⌃', Ctrl: '⌃', Alt: '⌥', Option: '⌥', Shift: '⇧', Enter: '↵', Space: '␣', Delete: '⌫', Backspace: '⌫', Up: '↑', Down: '↓', Left: '←', Right: '→' };
 export const keycapShortcut = (value: string) => {
   if (!value) return '';
-  return value
-    .split('+')
-    .map(part => part === 'CommandOrControl' ? 'Control' : part)
+  const mac = navigator.userAgent.includes('Mac');
+  const parts = value.split('+');
+  const last = parts.length - 1;
+  return parts
+    // Strip the held trigger on each platform (and the platform-neutral
+    // CommandOrControl alias), but always keep the final primary key.
+    .filter((part, i) => i === last || !['CommandOrControl', 'Command', 'Control'].includes(part))
     .map(part => keyGlyphs[part] ?? part)
     .join('');
 };

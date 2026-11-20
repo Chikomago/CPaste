@@ -12,9 +12,9 @@ export function RuleMenuWindow(){
  const [menu,setMenu]=useState<MenuData|undefined>(window.__ruleMenu);
  useEffect(()=>{
   document.body.classList.add('rule-menu-root');
-  const update=()=>{setHovered(null);setMenu(window.__ruleMenu);void call<Preferences>('get_preferences').then(p=>{applyTheme(p.theme, p.accent_color, p.disable_animations);animateSurface(document.querySelector('.rule-menu-panel'));});};
+  const update=()=>{setHovered(null);setMenu(window.__ruleMenu);void call<Preferences>('get_preferences').then(p=>{applyTheme(p.theme, p.accent_color, p.disable_animations, p.font_family);animateSurface(document.querySelector('.rule-menu-panel'));});};
   window.addEventListener('rule-menu-ready',update);update();
-  const preferences=listen('preferences-changed',()=>{void call<Preferences>('get_preferences').then(p=>applyTheme(p.theme,p.accent_color,p.disable_animations));});
+  const preferences=listen('preferences-changed',()=>{void call<Preferences>('get_preferences').then(p=>applyTheme(p.theme,p.accent_color,p.disable_animations,p.font_family));});
   const position=listen<[number,number]|null>('rule-pointer',event=>{pointer.current=event.payload;updatePointer();});
   const sub=listen<MenuData>('rule-menu-changed',event=>{window.__ruleMenu=event.payload;update();});
   return()=>{window.removeEventListener('rule-menu-ready',update);document.body.classList.remove('rule-menu-root');void sub.then(off=>off());void position.then(off=>off());void preferences.then(off=>off());};

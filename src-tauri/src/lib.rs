@@ -34,6 +34,7 @@ mod content_tools;
 mod database;
 mod diagnostics;
 mod fingerprint;
+mod fonts;
 mod image_scripts;
 mod media_tools;
 mod menus;
@@ -356,6 +357,7 @@ pub fn run() {
                 storage::get_storage_breakdown,
                 storage::clear_storage_category,
                 applications::list_installed_apps,
+                fonts::list_fonts,
                 backup::backup_database,
                 backup::choose_restore_file,
                 backup::restore_database,
