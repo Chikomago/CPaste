@@ -124,7 +124,7 @@ export function Picker() {
     refreshVersion.current += 1;
     setClips(items => patchClipFlags(items, patch));
   }, (command, id) => call<boolean>(command, { id })), []);
-  const refresh = async () => { const version = ++refreshVersion.current; try { const [items, settings] = await Promise.all([call<Clip[]>('list_clips'), call<Preferences>('get_preferences')]); if (version !== refreshVersion.current) return; activity.current?.setEnabled(settings.lightweight_mode); if(version!==refreshVersion.current||activity.current?.deferWork())return; setClips(flagMutations.overlay(items).map(clip=>{const patch=imageRevisions.current.get(clip.id);return patch&&Math.floor(Date.parse(clip.updated_at)/1000)===Math.floor(Date.parse(patch.revision)/1000)?{...clip,updated_at:patch.revision,image_size:patch.image_size??clip.image_size,image_format:patch.image_format??clip.image_format}:clip;})); setPrefs(settings); setLanguage(settings.language); defaultFilterRef.current = settings.default_filter; applyTheme(settings.theme, settings.accent_color, settings.disable_animations); } catch (e) { setNotice(`记录读取失败：${String(e)}`); } };
+  const refresh = async () => { const version = ++refreshVersion.current; try { const [items, settings] = await Promise.all([call<Clip[]>('list_clips'), call<Preferences>('get_preferences')]); if (version !== refreshVersion.current) return; activity.current?.setEnabled(settings.lightweight_mode); if(version!==refreshVersion.current||activity.current?.deferWork())return; setClips(flagMutations.overlay(items).map(clip=>{const patch=imageRevisions.current.get(clip.id);return patch&&Math.floor(Date.parse(clip.updated_at)/1000)===Math.floor(Date.parse(patch.revision)/1000)?{...clip,updated_at:patch.revision,image_size:patch.image_size??clip.image_size,image_format:patch.image_format??clip.image_format}:clip;})); setPrefs(settings); setLanguage(settings.language); defaultFilterRef.current = settings.default_filter; applyTheme(settings.theme, settings.accent_color, settings.disable_animations, settings.font_family); } catch (e) { setNotice(`记录读取失败：${String(e)}`); } };
   refreshNow.current=()=>{if(dictionaryDirty.current){dictionaryDirty.current=false;setDictionaryRevision(value=>value+1);}void refresh();};
   useEffect(() => {
     let live=true;
@@ -153,7 +153,7 @@ export function Picker() {
       // Moving the cursor onto the detached preview keeps it open; leaving it
       // starts the same short grace period as leaving a row.
       listen<{ inside: boolean }>('preview-pointer', event => { if (event.payload.inside) cancelHoverHide(); else scheduleHoverHide(); }),
-      listen('preferences-changed',()=>{void call<Preferences>('get_preferences').then(settings=>{setPrefs(settings);setLanguage(settings.language);applyTheme(settings.theme,settings.accent_color,settings.disable_animations);activity.current?.setEnabled(settings.lightweight_mode);});}),
+      listen('preferences-changed',()=>{void call<Preferences>('get_preferences').then(settings=>{setPrefs(settings);setLanguage(settings.language);applyTheme(settings.theme,settings.accent_color,settings.disable_animations,settings.font_family);activity.current?.setEnabled(settings.lightweight_mode);});}),
       listen<PickerOpening>('picker-opening', event => {
         activity.current?.show();
         pendingOpenCleanup();
@@ -566,13 +566,10 @@ export function Picker() {
       if(!showPositionKeys||!action)return;
       const shortcut=({...actionShortcutDefaults,...prefs.action_shortcuts})[action];
       if(!shortcut)return;
-      // Both platforms hide the long-pressed trigger key: ⌘ on macOS, Ctrl on
-      // Windows. The remaining modifiers use the same glyphs, so Ctrl+Shift+P
-      // shows "⇧P" on Windows just as Cmd+Shift+P shows "⇧P" on macOS.
-      const bare=shortcut.replace(/(?:CommandOrControl|Command|Control)\+/g,'');
-      const hint=navigator.userAgent.includes('Windows')
-        ?keycapShortcut(bare)
-        :displayShortcut(bare);
+      // One renderer for both platforms: keycapShortcut strips the held trigger
+      // (⌘ on macOS, Ctrl on Windows) and maps every remaining key through the
+      // same glyph table, so the two platforms share one style and one code path.
+      const hint=keycapShortcut(shortcut);
       if(!hint)return;
       button.dataset.shortcutHint=hint;
       button.dataset.shortcutLen=String(hint.length);

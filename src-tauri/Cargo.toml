@@ -42,7 +42,7 @@ icu_segmenter = "2.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
-objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSImage", "NSRunningApplication", "NSWorkspace", "libc"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSFontManager", "NSImage", "NSRunningApplication", "NSWorkspace", "libc"] }
 tauri-nspanel = "=2.1.1"
 
 [dev-dependencies]

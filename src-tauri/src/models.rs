@@ -43,6 +43,7 @@ pub(crate) struct Preferences {
     pub(crate) segment_custom_words: String,
     pub(crate) theme: String,
     pub(crate) language: String,
+    pub(crate) font_family: String,
     pub(crate) accent_color: String,
     pub(crate) shortcut: String,
     #[serde(default = "default_action_shortcuts")]
@@ -88,6 +89,7 @@ impl Default for Preferences {
             segment_custom_words: String::new(),
             theme: "system".into(),
             language: "zh-CN".into(),
+            font_family: String::new(),
             accent_color: "#3569ed".into(),
             shortcut: "CommandOrControl+Shift+V".into(),
             action_shortcuts: default_action_shortcuts(),

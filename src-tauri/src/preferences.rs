@@ -116,6 +116,14 @@ pub(crate) fn validate_preferences(preferences: &Preferences) -> Result<(), Stri
     {
         return Err("主题色格式无效".into());
     }
+    if preferences.font_family.chars().count() > 128
+        || preferences
+            .font_family
+            .chars()
+            .any(|c| c.is_control() || c == ';' || c == '{' || c == '}')
+    {
+        return Err("字体设置无效".into());
+    }
     if !["center", "cursor"].contains(&preferences.popup_position.as_str()) {
         return Err("面板位置设置无效".into());
     }

@@ -15,7 +15,7 @@ import { animateSurface, applyTheme } from '../lib/theme';
 import { call } from '../lib/api';
 import { InstalledAppIcon, resetAppIconCache } from '../components/ClipMedia';
 import { StorageUsage } from '../components/StorageUsage';
-import { Setting, SettingsSelect, SettingsNumber, Toggle } from '../components/SettingsControls';
+import { Setting, SettingsSelect, SettingsNumber, FontPicker, Toggle } from '../components/SettingsControls';
 import { isEnglish, setLanguage, tr, trNotice } from '../i18n';
 
 export type Category = 'appearance' | 'shortcut' | 'behavior' | 'capture' | 'segmentation' | 'rules' | 'cleanup' | 'privacy' | 'permissions' | 'startup' | 'backup' | 'developer' | 'about';
@@ -51,7 +51,7 @@ export function SettingsWindow() {
   const [accessibilityGranted, setAccessibilityGranted] = useState(false);
   const [fullDiskGranted, setFullDiskGranted] = useState<boolean | null>(null);
   useEffect(() => {
-    void call<Preferences>('get_preferences').then(p => { setPrefs(p); setLanguage(p.language); applyTheme(p.theme, p.accent_color, p.disable_animations); }).catch(e => setNotice(`设置读取失败：${String(e)}`));
+    void call<Preferences>('get_preferences').then(p => { setPrefs(p); setLanguage(p.language); applyTheme(p.theme, p.accent_color, p.disable_animations, p.font_family); }).catch(e => setNotice(`设置读取失败：${String(e)}`));
     const refreshSize = () => { void call<number>('get_database_size').then(setDatabaseSize).catch(() => setDatabaseSize(null)); };
     refreshSize();
     const listener = Promise.all([listen('clips-changed', refreshSize), listen('dictionary-changed', refreshSize), listen('rules-changed', refreshSize), listen('storage-changed', refreshSize), listen<{kind:string}>('media-cache-cleared', event=>{if(event.payload.kind==='icons'){resetAppIconCache();setPrefs(current=>({...current}));}})]);
@@ -72,7 +72,7 @@ export function SettingsWindow() {
     return () => window.clearInterval(timer);
   }, [category]);
   useEffect(()=>{animateSurface(document.querySelector('.settings-body'));},[category]);
-  const save = async (next: Preferences) => { setPrefs(next); setLanguage(next.language); applyTheme(next.theme, next.accent_color, next.disable_animations); try { await call('save_preferences', { preferences: next }); } catch (e) { setNotice(`设置未保存：${String(e)}`); const prior = await call<Preferences>('get_preferences'); setPrefs(prior); setLanguage(prior.language); applyTheme(prior.theme, prior.accent_color, prior.disable_animations); } };
+  const save = async (next: Preferences) => { setPrefs(next); setLanguage(next.language); applyTheme(next.theme, next.accent_color, next.disable_animations, next.font_family); try { await call('save_preferences', { preferences: next }); } catch (e) { setNotice(`设置未保存：${String(e)}`); const prior = await call<Preferences>('get_preferences'); setPrefs(prior); setLanguage(prior.language); applyTheme(prior.theme, prior.accent_color, prior.disable_animations, prior.font_family); } };
   const appRule = (app: InstalledApp) => navigator.userAgent.includes('Windows') ? app.name : app.path;
   const isAppBlocked = (app: InstalledApp) => prefs.excluded_apps.some(rule => rule.toLocaleLowerCase() === app.name.toLocaleLowerCase() || rule.toLocaleLowerCase() === app.path.toLocaleLowerCase() || (rule.toLocaleLowerCase().endsWith('.app') && app.path.toLocaleLowerCase().startsWith(`${rule.toLocaleLowerCase()}/`)));
   const toggleAppBlocked = (app: InstalledApp) => {
@@ -96,7 +96,7 @@ export function SettingsWindow() {
       if (!path || !window.confirm(tr('恢复备份会覆盖当前所有记录和设置，无法撤销。确定继续吗？'))) return;
       await call('restore_database', { path });
       const [restored, size] = await Promise.all([call<Preferences>('get_preferences'), call<number>('get_database_size')]);
-      setPrefs(restored); setLanguage(restored.language); applyTheme(restored.theme, restored.accent_color, restored.disable_animations); setDatabaseSize(size); setNotice(tr('备份已恢复'));
+      setPrefs(restored); setLanguage(restored.language); applyTheme(restored.theme, restored.accent_color, restored.disable_animations, restored.font_family); setDatabaseSize(size); setNotice(tr('备份已恢复'));
     } catch (error) { setNotice(`恢复失败：${String(error)}`); }
     finally { setBackupBusy(false); }
   };
@@ -116,6 +116,7 @@ export function SettingsWindow() {
           <Setting label={tr('语言')} help={tr('切换界面语言')}><SettingsSelect label={tr('语言')} value={prefs.language} options={[['zh-CN', tr('中文')], ['en-US', 'English']]} onChange={value => void save({ ...prefs, language: value as Preferences['language'] })}/></Setting>
           <Setting label={tr('主题')} help={tr('切换主题外观')}><SettingsSelect label={tr('主题')} value={prefs.theme} options={[['system', tr('跟随系统')], ['light', tr('浅色')], ['dark', tr('深色')]]} onChange={value => void save({ ...prefs, theme: value as Preferences['theme'] })}/></Setting>
           <Setting label={tr('主题色')} help={tr('界面主色调')}><input className="accent-picker" type="color" aria-label={tr('主题色')} value={prefs.accent_color} onChange={event => void save({ ...prefs, accent_color: event.target.value })}/></Setting>
+          <Setting label={tr('字体')} help={tr('全局字体设置')}><FontPicker value={prefs.font_family} onChange={value => void save({ ...prefs, font_family: value })}/></Setting>
           <Toggle label={tr('默认打开侧栏')} checked={prefs.default_sidebar_open} onChange={value => void save({ ...prefs, default_sidebar_open: value })}/>
           <Toggle label={tr('内容预览')} help={tr('跟随光标显示剪贴板预览卡片')} checked={prefs.hover_preview} onChange={v => void save({ ...prefs, hover_preview: v })}/>
           <Toggle label={tr('禁用动画效果')} checked={prefs.disable_animations} onChange={value => void save({ ...prefs, disable_animations: value })}/>
