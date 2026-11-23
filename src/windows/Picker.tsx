@@ -1,3 +1,5 @@
+import { RuleListPopover } from '../components/RuleListPopover';
+import { panelSize } from '../lib/panel-layout';
 import {WindowActivity} from '../lib/window-activity';
 import { useScriptRules } from '../lib/use-script-rules';
 import type { ScriptRule } from '../lib/js-rules';
@@ -18,14 +20,13 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import React from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { LogicalSize } from '@tauri-apps/api/dpi';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Workflow, ArrowDownUp, Clipboard, Code2, Copy, Download, Eye, File, FileText, FolderOpen, Heart, Image, List, Pencil, WholeWord, Pin, AppWindow, PanelRightOpen, PanelRightClose, Search, Settings2, Trash2, X } from 'lucide-react';
+import { Workflow, ArrowDownUp, Clipboard, Code2, Copy, Download, Eye, File, FileText, FolderOpen, Heart, Image, List, Pencil, WholeWord, Pin, AppWindow, PanelRightOpen, PanelRightClose, PanelBottomOpen, PanelBottomClose, ChevronDown, Search, Settings2, Trash2, X } from 'lucide-react';
 import { Clip, ClipSort, TriggerEdge, PickerOpening, ActionShortcut, Preferences, Filter, PreviewClip } from '../types';
 import { actionShortcutDefaults, defaults } from '../preferences';
 import { displayShortcut, keycapShortcut, normalizeShortcut, shortcutFromKey } from '../lib/shortcuts';
-import { isCode, clipLabel, clipSummary, timeLabel } from '../lib/clips';
+import { isCode, clipSummary, timeLabel } from '../lib/clips';
 import { animationsEnabled, animateSurface, applyTheme } from '../lib/theme';
 import { call } from '../lib/api';
 import { AppIcon, ImageThumbnail, resetAppIconCache } from '../components/ClipMedia';
@@ -54,6 +55,8 @@ export function Picker() {
   const [sidebarEditingClip, setSidebarEditingClip] = useState<Clip | null>(null);
   const [sidebarTokenClip, setSidebarTokenClip] = useState<Clip | null>(null);
   const {rules:rowRules,ready:rowRulesReady}=useScriptRules();
+  const [rowRuleMenu,setRowRuleMenu]=useState<{id:number;anchor:HTMLElement}|null>(null);
+  const closeRowRules=useCallback(()=>setRowRuleMenu(null),[]);
   const pendingRules=useRef<{clip:Clip;rules:ScriptRule[]} | null>(null);
   useEffect(() => {
     document.body.classList.add('picker-body-root');
@@ -73,8 +76,6 @@ export function Picker() {
   const [windowPinned, setWindowPinned] = useState(false);
   const defaultFilterRef = useRef<Preferences['default_filter']>('all');
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [previewId, setPreviewId] = useState<number | null>(null);
-  const [hoverId, setHoverId] = useState<number | null>(null);
   const [previewClip, setPreviewClip] = useState<PreviewClip | null>(null);
   const [showPositionKeys, setShowPositionKeys] = useState(false);
   const [menu, setMenu] = useState<{ id: number; x: number; y: number } | null>(null);
@@ -96,8 +97,6 @@ export function Picker() {
   const edgeOpeningAnimation = useRef(false);
   const resizeDrag = useRef<{ edge: Exclude<TriggerEdge, 'none'>; start: number; cardSize: number; current: number; columns: number } | null>(null);
   const resizeQueue = useRef<{ requested: number | null; running: boolean }>({ requested: null, running: false });
-  const scrollingUntil = useRef(0);
-  const alignFrame = useRef(0);
   const pastingRef = useRef(false);
   const refreshVersion = useRef(0);
   const refreshNow=useRef<()=>void>(()=>{});
@@ -109,8 +108,7 @@ export function Picker() {
     const removed=new Set(ids);refreshVersion.current+=1;
     setToolHistory(items=>items.filter(item=>!removed.has(item.id)));setToolRedo(items=>items.filter(item=>!removed.has(item.id)));
     setClips(items=>items.filter(clip=>!removed.has(clip.id)));
-    setSelectedId(current=>current!==null&&removed.has(current)?null:current);setPreviewId(current=>current!==null&&removed.has(current)?null:current);
-    setHoverId(current=>current!==null&&removed.has(current)?null:current);
+    setSelectedId(current=>current!==null&&removed.has(current)?null:current);
     setSidebarToolsClip(current=>current&&removed.has(current.id)?null:current);
     ids.forEach(id=>{thumbnailCache.invalidate(id);imageRevisions.current.delete(id);});
   };
@@ -150,9 +148,6 @@ export function Picker() {
       listen<(Partial<ClipFlagPatch & ClipContentPatch> & { deleted_id?: number;deleted_ids?:number[];reset?:boolean;use_count?:number }) | null>('clips-changed', event => { const patch = event.payload; if(activity.current?.deferWork()){refreshVersion.current+=1;if(patch?.reset){resetImageCaches();imageRevisions.current.clear();}return;} if(patch?.reset){resetImageCaches();imageRevisions.current.clear();void refresh();return;} if(Array.isArray(patch?.deleted_ids)){removeClips(patch.deleted_ids);return;} if(typeof patch?.updated_id==='number'&&typeof patch.use_count==='number'){refreshVersion.current+=1;setClips(items=>items.map(clip=>clip.id===patch.updated_id?{...clip,use_count:patch.use_count!}:clip));return;} if (typeof patch?.deleted_id === 'number') removeClip(patch.deleted_id); else if (typeof patch?.updated_id === 'number' && typeof patch.plain_text === 'string') receiveContent(patch as ClipContentPatch); else if (typeof patch?.updated_id === 'number' && (typeof patch.pinned === 'boolean' || typeof patch.favorite === 'boolean')) flagMutations.receive(patch as ClipFlagPatch); else void refresh(); }),
       listen<{ id: number; action: string }>('clip-menu-action', event => menuActionRef.current(event.payload.id, event.payload.action)),
       listen('picker-hidden',()=>activity.current?.hide()),
-      // Moving the cursor onto the detached preview keeps it open; leaving it
-      // starts the same short grace period as leaving a row.
-      listen<{ inside: boolean }>('preview-pointer', event => { if (event.payload.inside) cancelHoverHide(); else scheduleHoverHide(); }),
       listen('preferences-changed',()=>{void call<Preferences>('get_preferences').then(settings=>{setPrefs(settings);setLanguage(settings.language);applyTheme(settings.theme,settings.accent_color,settings.disable_animations,settings.font_family);activity.current?.setEnabled(settings.lightweight_mode);});}),
       listen<PickerOpening>('picker-opening', event => {
         activity.current?.show();
@@ -165,7 +160,7 @@ export function Picker() {
         closingAnimation.current = null;
         flushSync(() => {
           setPickerEdge(edge);
-          setQuery(''); setFilter(defaultFilterRef.current); setSort('created'); setSortOpen(false); setSidebarOpen(sidebar_open); setEditingClip(null); setTokenClip(null); setSidebarEditingClip(null); setSidebarTokenClip(null); setSidebarToolsClip(null); setDeleteId(null); setClearScope(null); setClearError(''); setWindowPinned(false); setSelectedId(null); setPreviewId(null); setHoverId(null); setShowPositionKeys(false); setMenu(null);
+          setRowRuleMenu(null);setQuery(''); setFilter(defaultFilterRef.current); setSort('created'); setSortOpen(false); setSidebarOpen(sidebar_open); setEditingClip(null); setTokenClip(null); setSidebarEditingClip(null); setSidebarTokenClip(null); setSidebarToolsClip(null); setDeleteId(null); setClearScope(null); setClearError(''); setWindowPinned(false); setSelectedId(null);   setShowPositionKeys(false); setMenu(null);
         });
         const reveal = (animate: boolean) => {
           animate = animate && animationsEnabled();
@@ -243,42 +238,8 @@ export function Picker() {
   const positionClips=useMemo(()=>[...viewportIds.pinned,...viewportIds.regular].map(id=>visible.find(clip=>clip.id===id)).filter((clip):clip is Clip=>!!clip).slice(0,10),[viewportIds,visible]);
   const positionById = useMemo(() => new Map(positionClips.map((clip,index)=>[clip.id,index===9?0:index+1])),[positionClips]);
   const detailsActive = sidebarOpen && !tokenClip && !editingClip;
-  // The in-window sidebar is now reserved for the expanded details/editor view.
-  // Hover previews live in a separate native window, so the picker webview no
-  // longer grows to 650px or paints a backing panel behind the preview card.
   const showPreview = detailsActive;
   const previewTargetId = showPreview ? active?.id ?? null : null;
-  // Hover previews must not linger: when the pointer leaves the row (or the
-  // whole panel) the preview closes, instead of falling back to the selected
-  // row and staying on screen forever.
-  const hoverPreviewRef = useRef(false);
-  const hoverPreviewActive = pickerEdge === 'none' && prefs.hover_preview;
-  hoverPreviewRef.current = hoverPreviewActive;
-  const hoverHideTimer = useRef(0);
-  const cancelHoverHide = useCallback(() => {
-    if (!hoverHideTimer.current) return;
-    window.clearTimeout(hoverHideTimer.current);
-    hoverHideTimer.current = 0;
-  }, []);
-  const hideHoverPreview = () => { cancelHoverHide(); setHoverId(null); setPreviewId(null); };
-  const scheduleHoverHide = useCallback(() => {
-    if (!hoverPreviewRef.current) return;
-    cancelHoverHide();
-    // A short grace period lets the pointer travel between adjacent rows (or
-    // onto the preview itself) without flickering the panel.
-    hoverHideTimer.current = window.setTimeout(() => { hoverHideTimer.current = 0; setHoverId(null); setPreviewId(null); }, 160);
-  }, [cancelHoverHide]);
-  useEffect(() => () => cancelHoverHide(), [cancelHoverHide]);
-  // A filtered-out row must not keep its preview alive.
-  const hoveredClipId = hoverId !== null && visible.some(clip => clip.id === hoverId) ? hoverId : null;
-  const floatingPreviewId = !detailsActive && !tokenClip && !editingClip && deleteId === null && !menu
-    ? (hoverPreviewActive ? hoveredClipId ?? previewId : previewId)
-    : null;
-  useEffect(() => {
-    if (floatingPreviewId === null) { void call('hide_preview'); return; }
-    const row = rowRefs.current[floatingPreviewId]?.getBoundingClientRect();
-    void call('show_preview', { id: floatingPreviewId, edge: pickerEdge, anchorX: row ? row.left + row.width / 2 : window.innerWidth / 2, anchorY: row ? row.top + row.height / 2 : window.innerHeight / 2 }).catch(error => setNotice(`预览无法打开：${String(error)}`));
-  }, [pickerEdge, floatingPreviewId, detailsActive, tokenClip, editingClip, deleteId]);
 
   const detailsGeometry = useRef<{ edge: TriggerEdge; expanded: boolean }>({ edge: 'none', expanded: false });
   useEffect(() => {
@@ -290,10 +251,26 @@ export function Picker() {
   }, [pickerEdge, detailsActive, prefs.edge_card_size]);
   useLayoutEffect(() => {
     if (pickerEdge !== 'none') return;
-    const width = detailsActive ? 650 : 350;
-    if (Math.abs(window.innerWidth - width) < 1 && Math.abs(window.innerHeight - 600) < 1) return;
-    void getCurrentWindow().setSize(new LogicalSize(width, 600)).catch(error => setNotice(`预览窗口无法调整：${String(error)}`));
-  }, [detailsActive, pickerEdge]);
+    const { width, height } = panelSize(prefs.panel_layout, detailsActive);
+    // Native code fits both the size and position to this monitor's work area.
+    void call('resize_picker', { width, height }).catch(error => setNotice(`面板尺寸调整失败：${String(error)}`));
+  }, [detailsActive, pickerEdge, prefs.panel_layout]);
+  useEffect(() => {
+    if (pickerEdge !== 'none') return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const fit = () => {
+      if (!live) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const { width, height } = panelSize(prefs.panel_layout, detailsActive);
+        void call('resize_picker', { width, height }).catch(error => setNotice(`面板位置调整失败：${String(error)}`));
+      }, 150);
+    };
+    const window = getCurrentWindow();
+    const listeners = Promise.all([window.onMoved(fit), window.onScaleChanged(fit)]);
+    return () => { live = false; clearTimeout(timer); void listeners.then(unlisten => unlisten.forEach(stop => stop())); };
+  }, [detailsActive, pickerEdge, prefs.panel_layout]);
   const previewKnown = clips.find(clip => clip.id === previewTargetId);
   useEffect(() => {
     if (previewTargetId === null || previewKnown?.kind !== 'files') return;
@@ -307,38 +284,8 @@ export function Picker() {
     if (previewClip?.id === previewTargetId && known) return { ...previewClip, ...known, file_sizes: known.files.map((file, index) => previewClip.files[index] === file ? previewClip.file_sizes[index] ?? null : null) };
     return known ? { ...known, file_sizes: known.files.map(() => null) } : null;
   }, [previewClip, previewTargetId, clips]);
-  // Write the preview offset straight to the DOM: setState here used to
-  // re-render the whole picker (and the virtual list) on every scroll frame,
-  // which is why wheel events were intermittently dropped on Windows.
-  const alignPreview = () => {
-    const preview = previewRef.current;
-    if (!preview) return;
-    if (detailsActive) { preview.style.top = '0px'; return; }
-    const row = previewTargetId === null ? null : rowRefs.current[previewTargetId];
-    const shell = pickerRef.current?.parentElement;
-    if (!row || !shell) return;
-    const shellBounds = shell.getBoundingClientRect();
-    const rowBounds = row.getBoundingClientRect();
-    const rowY = rowBounds.top + rowBounds.height / 2 - shellBounds.top;
-    const height = preview.getBoundingClientRect().height;
-    const top = Math.max(0, Math.min(rowY - 24, shellBounds.height - height));
-    preview.style.top = `${top}px`;
-  };
-  const scheduleAlignPreview = () => {
-    scrollingUntil.current = Date.now() + 200;
-    if (alignFrame.current) return;
-    alignFrame.current = requestAnimationFrame(() => { alignFrame.current = 0; alignPreview(); });
-  };
-  useEffect(() => () => { if (alignFrame.current) cancelAnimationFrame(alignFrame.current); }, []);
-  useLayoutEffect(() => {
-    if (!showPreview) return;
-    alignPreview();
-    const observer = new ResizeObserver(alignPreview);
-    if (previewRef.current) observer.observe(previewRef.current);
-    return () => observer.disconnect();
-  }, [showPreview, previewTargetId, previewClip?.id, detailsActive]);
   useEffect(() => {
-    if (pickerEdge !== 'top' && pickerEdge !== 'bottom') return;
+    if (prefs.panel_layout !== 'horizontal') return;
     const lists = pickerRef.current?.querySelectorAll<HTMLElement>('.result-list,.pinned-list');
     const scrollSideways = (event: WheelEvent) => {
       if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
@@ -347,15 +294,14 @@ export function Picker() {
     };
     lists?.forEach(list => list.addEventListener('wheel', scrollSideways, { passive: false }));
     return () => lists?.forEach(list => list.removeEventListener('wheel', scrollSideways));
-  }, [pickerEdge, clips]);
+  }, [pickerEdge, clips, prefs.panel_layout]);
   // WebView2 sometimes swallows wheel events over the virtual list unless the
   // cursor sits on the scrollbar. Take vertical scrolling over natively there,
   // and suppress hover-preview changes while the list is being scrolled.
   useEffect(() => {
-    if (!navigator.userAgent.includes('Windows') || pickerEdge === 'top' || pickerEdge === 'bottom') return;
+    if (!navigator.userAgent.includes('Windows') || prefs.panel_layout === 'horizontal') return;
     const lists = pickerRef.current?.querySelectorAll<HTMLElement>('.result-list,.pinned-list');
     const onWheel = (event: WheelEvent) => {
-      scrollingUntil.current = Date.now() + 200;
       const list = event.currentTarget as HTMLElement;
       if (list.scrollHeight <= list.clientHeight + 1) return;
       event.preventDefault();
@@ -363,7 +309,7 @@ export function Picker() {
     };
     lists?.forEach(list => list.addEventListener('wheel', onWheel, { passive: false }));
     return () => lists?.forEach(list => list.removeEventListener('wheel', onWheel));
-  }, [pickerEdge, clips]);
+  }, [pickerEdge, clips, prefs.panel_layout]);
   const action = async (name: string, args?: Record<string, unknown>, successNotice?: string) => {
     setMenu(null);
     if ((name === 'toggle_pin' || name === 'toggle_favorite') && typeof args?.id === 'number') {
@@ -383,14 +329,20 @@ export function Picker() {
   const openEditor = (clip: Clip) => {
     if ((clip.kind !== 'text' && clip.kind !== 'rich') || clip.sensitive_masked) return;
     if (sidebarOpen) { setSidebarTokenClip(null); setSidebarToolsClip(null); setSidebarEditingClip(clip); setSelectedId(clip.id); } else setEditingClip(clip);
-    setPreviewId(null); beginEditorInput();
+     beginEditorInput();
   };
   const saveEdit = async (clip: Clip, content: string, formats?: ToolDocument) => {
     try { setBusy(true); const patch = await call<ClipContentPatch>('edit_clip', { id: clip.id, content, formattedHtml: formats?.html ?? null, formattedRtf: formats?.rtf ?? null }); receiveContent(patch); }
     finally { setBusy(false); }
   };
-  const paste = async (clip: Clip, mode: 'default' | 'plain' | 'original' = 'default') => { if (pastingRef.current || transferPending.current || busy) return; pastingRef.current = true;transferPending.current=true; setMenu(null); setPreviewId(null); try { setTransferBusy(true); const command = mode === 'plain' ? 'paste_plain_clip' : mode === 'original' ? 'paste_original_clip' : 'paste_clip'; const result = await call<string>(command, { id: clip.id, edge: pickerEdge }); if (result === 'copied') setNotice(tr('已放入剪贴板，可手动粘贴')); if (result === 'pasted' && prefs.return_to_top_after_paste) { setSelectedId(null); pickerRef.current?.querySelectorAll<HTMLElement>('.result-list,.pinned-list').forEach(list => { list.scrollTop = 0; list.scrollLeft = 0; }); } } catch (e) { setNotice(`粘贴失败：${String(e)}`); } finally { setTransferBusy(false);transferPending.current=false; window.setTimeout(() => { pastingRef.current = false; }, 350); } };
-  const openTokens = (clip: Clip) => { if ((clip.kind === 'text' || clip.kind === 'rich') && clip.plain_text.trim() && !clip.sensitive_masked) { if (sidebarOpen) { setSidebarToolsClip(null); setSidebarEditingClip(null); setSidebarTokenClip(clip); setSelectedId(clip.id); } else setTokenClip(clip); setPreviewId(null); setShowPositionKeys(false); } };
+  const paste = async (clip: Clip, mode: 'default' | 'plain' | 'original' = 'default') => { if (pastingRef.current || transferPending.current || busy) return; pastingRef.current = true;transferPending.current=true; setMenu(null);  try { setTransferBusy(true); const command = mode === 'plain' ? 'paste_plain_clip' : mode === 'original' ? 'paste_original_clip' : 'paste_clip'; const result = await call<string>(command, { id: clip.id, edge: pickerEdge }); if (result === 'copied') setNotice(tr('已放入剪贴板，可手动粘贴')); if (result === 'pasted' && prefs.return_to_top_after_paste) { setSelectedId(null); pickerRef.current?.querySelectorAll<HTMLElement>('.result-list,.pinned-list').forEach(list => { list.scrollTop = 0; list.scrollLeft = 0; }); } } catch (e) { setNotice(`粘贴失败：${String(e)}`); } finally { setTransferBusy(false);transferPending.current=false; window.setTimeout(() => { pastingRef.current = false; }, 350); } };
+  const openTokens = (clip: Clip) => { if ((clip.kind === 'text' || clip.kind === 'rich') && clip.plain_text.trim() && !clip.sensitive_masked) { if (sidebarOpen) { setSidebarToolsClip(null); setSidebarEditingClip(null); setSidebarTokenClip(clip); setSelectedId(clip.id); } else setTokenClip(clip);  setShowPositionKeys(false); } };
+  const copyFragment=async(text:string,clip:Clip|null=tokenClip)=>{
+    if(!clip||busy||transferPending.current)return;
+    transferPending.current=true;setBusy(true);
+    try{await call('copy_text_fragment',{id:clip.id,text});}
+    finally{transferPending.current=false;setBusy(false);}
+  };
   const submitFragment = async (text: string, clip: Clip | null = tokenClip) => {
     if (!clip || busy || pastingRef.current) return;
     pastingRef.current = true; setBusy(true);
@@ -443,12 +395,11 @@ export function Picker() {
   };
   const imageAction = async (clip: Clip, command: 'save_image' | 'open_image' | 'save_image_as') => {
     if (clip.kind !== 'image' || clip.sensitive_masked || busy) return;
-    setPreviewId(null); setBusy(true);
+     setBusy(true);
     try { const result = await call<string | null>(command === 'save_image_as' ? 'save_image' : command, { id: clip.id, choosePath: command === 'save_image_as' }); if (command !== 'open_image' && result) setNotice(tr('已保存')); }
     catch (error) { setNotice(tr(String(error))); } finally { setBusy(false); }
   };
   const closePicker = () => {
-    hideHoverPreview();
     if (!animationsEnabled() || !pickerRef.current) { void call('hide_picker'); return; }
     if (closingAnimation.current) return;
     const offset = { none: 'translate(0)', left: 'translateX(-100%)', right: 'translateX(100%)', top: 'translateY(-100%)', bottom: 'translateY(100%)' }[pickerEdge];
@@ -464,7 +415,7 @@ export function Picker() {
   const panelAction=(action:string):boolean=>{
     switch(action){
       case 'settings':void call('open_settings').catch(error=>setNotice(String(error)));return true;
-      case 'sidebar':setSidebarOpen(open=>!open);return true;
+      case 'sidebar':setRowRuleMenu(null);setSidebarOpen(open=>!open);return true;
       case 'window_pin':void call<boolean>('set_picker_pinned',{pinned:!windowPinned}).then(setWindowPinned).catch(error=>setNotice(String(error)));return true;
       case 'sort':setSortOpen(open=>!open);return true;
       case 'search':void call('set_picker_editing',{editing:true}).then(()=>searchRef.current?.focus()).catch(error=>setNotice(String(error)));return true;
@@ -472,14 +423,14 @@ export function Picker() {
     if(action.startsWith('filter_')){
       const direction=action==='filter_next'?1:action==='filter_previous'?-1:0;
       const next=direction?filters[(filters.findIndex(item=>item.id===filter)+direction+filters.length)%filters.length]?.id:filters.find(item=>`filter_${item.id}`===action)?.id;
-      if(next){setFilter(next);setSelectedId(null);setPreviewId(null);return true;}
+      if(next){setFilter(next);setSelectedId(null);return true;}
     }
     return false;
   };
-  const onKeyDown = (e: React.KeyboardEvent) => { if (e.nativeEvent.isComposing) return; if (toolHistoryAction(e) && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || (e.target instanceof HTMLElement && e.target.isContentEditable)) && !editingClip && !sidebarEditingClip && !tokenClip && !sidebarTokenClip) { e.preventDefault(); void (toolHistoryAction(e) === 'redo' ? redoTool() : undoTool()).catch(error => setNotice(tr(String(error)))); return; } if (tokenClip) { if (e.key === 'Escape' && !busy) { e.preventDefault(); setTokenClip(null); } return; } if (editingClip || deleteId !== null || clearScope !== null) return; const bound=(Object.entries({...actionShortcutDefaults,...prefs.action_shortcuts}) as [ActionShortcut,string][]).find(([,value])=>value&&normalizeShortcut(value)===normalizeShortcut(shortcutFromKey(e,true)||''));
+  const onKeyDown = (e: React.KeyboardEvent) => { if (e.nativeEvent.isComposing) return; if(e.key===' '&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&(e.target instanceof HTMLInputElement||e.target instanceof HTMLTextAreaElement||(e.target instanceof HTMLElement&&e.target.isContentEditable)))return; if (toolHistoryAction(e) && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || (e.target instanceof HTMLElement && e.target.isContentEditable)) && !editingClip && !sidebarEditingClip && !tokenClip && !sidebarTokenClip) { e.preventDefault(); void (toolHistoryAction(e) === 'redo' ? redoTool() : undoTool()).catch(error => setNotice(tr(String(error)))); return; } if (tokenClip) { if (e.key === 'Escape' && !busy) { e.preventDefault(); setTokenClip(null); } return; } if (editingClip || deleteId !== null || clearScope !== null) return; const bound=(Object.entries({...actionShortcutDefaults,...prefs.action_shortcuts}) as [ActionShortcut,string][]).find(([,value])=>value&&normalizeShortcut(value)===normalizeShortcut(shortcutFromKey(e,true)||''));
     if(bound && !sidebarEditingClip && !sidebarTokenClip && ['settings','sidebar','window_pin','sort','search','filter_next','filter_previous','filter_favorite'].includes(bound[0])){e.preventDefault();if(!e.nativeEvent.repeat)panelAction(bound[0]);return;}
-     if(active && !sidebarEditingClip && !sidebarTokenClip && normalizeShortcut(shortcutFromKey(e,true)||'')===normalizeShortcut(({...actionShortcutDefaults,...prefs.action_shortcuts}).tools) && ({...actionShortcutDefaults,...prefs.action_shortcuts}).tools){e.preventDefault();if(!e.nativeEvent.repeat)menuActionRef.current(active.id,'tools');return;} if(e.key==='Escape'&&sidebarOpen&&sidebarToolsClip){e.preventDefault();setSidebarToolsClip(null);return;} if (sidebarOpen && (sidebarTokenClip || sidebarEditingClip)) { if (e.key === 'Escape' && !busy) { e.preventDefault(); setSidebarTokenClip(null); setSidebarToolsClip(null); setSidebarEditingClip(null); } return; } const positionModifier = navigator.userAgent.includes('Mac') ? e.metaKey : e.ctrlKey; const horizontal = pickerEdge === 'top' || pickerEdge === 'bottom';  if (positionModifier && !e.altKey && !e.shiftKey && /^Digit[0-9]$/.test(e.code)) { const digit = Number(e.code.slice(5)); const target = positionClips[digit === 0 ? 9 : digit - 1]; if (target) { e.preventDefault(); void paste(target); } return; } if (e.key === 'Escape') { e.preventDefault(); if (sortOpen) setSortOpen(false); else if (menu) setMenu(null); else closePicker(); return; } if (e.key === (horizontal ? 'ArrowRight' : 'ArrowDown') && visible.length && !(horizontal && e.target instanceof HTMLInputElement)) { e.preventDefault(); const i = visible.findIndex(c => c.id === active?.id); setSelectedId(visible[Math.min(i + 1, visible.length - 1)].id); setPreviewId(null); } if (e.key === (horizontal ? 'ArrowLeft' : 'ArrowUp') && visible.length && !(horizontal && e.target instanceof HTMLInputElement)) { e.preventDefault(); const i = visible.findIndex(c => c.id === active?.id); setSelectedId(visible[Math.max(0, i - 1)].id); setPreviewId(null); } if (active && !(e.target instanceof HTMLSelectElement)) { const chord = shortcutFromKey(e, true); const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement; const matched = (Object.entries({...actionShortcutDefaults,...prefs.action_shortcuts}) as [ActionShortcut, string][]).find(([, value]) => value && normalizeShortcut(value) === normalizeShortcut(chord || '')); if (matched && (!typing || e.metaKey || e.ctrlKey || e.altKey || (matched[0] === 'paste' && chord === 'Enter')) ) { e.preventDefault(); menuActionRef.current(active.id, matched[0]); return; } } if ((e.key === 'F10' && e.shiftKey || e.key === 'ContextMenu') && active) { e.preventDefault(); const bounds = rowRefs.current[active.id]?.getBoundingClientRect(); if (bounds) { setSelectedId(active.id); setPreviewId(null); setMenu({ id: active.id, x: bounds.left + 20, y: bounds.bottom }); } } };
-  const openMenu = (e: React.MouseEvent, clip: Clip) => { e.preventDefault(); setSelectedId(clip.id); setPreviewId(null); setSortOpen(false); setMenu({ id: clip.id, x: e.clientX, y: e.clientY }); };
+     if(active && !sidebarEditingClip && !sidebarTokenClip && normalizeShortcut(shortcutFromKey(e,true)||'')===normalizeShortcut(({...actionShortcutDefaults,...prefs.action_shortcuts}).tools) && ({...actionShortcutDefaults,...prefs.action_shortcuts}).tools){e.preventDefault();if(!e.nativeEvent.repeat)menuActionRef.current(active.id,'tools');return;} if(e.key==='Escape'&&rowRuleMenu){e.preventDefault();setRowRuleMenu(null);return;} if(e.key==='Escape'&&sidebarOpen&&sidebarToolsClip){e.preventDefault();setSidebarToolsClip(null);return;} if (sidebarOpen && (sidebarTokenClip || sidebarEditingClip)) { if (e.key === 'Escape' && !busy) { e.preventDefault(); setSidebarTokenClip(null); setSidebarToolsClip(null); setSidebarEditingClip(null); } return; } const positionModifier = navigator.userAgent.includes('Mac') ? e.metaKey : e.ctrlKey; const horizontal = prefs.panel_layout === 'horizontal';  if (positionModifier && !e.altKey && !e.shiftKey && /^Digit[0-9]$/.test(e.code)) { const digit = Number(e.code.slice(5)); const target = positionClips[digit === 0 ? 9 : digit - 1]; if (target) { e.preventDefault(); void paste(target); } return; } if (e.key === 'Escape') { e.preventDefault(); if (sortOpen) setSortOpen(false); else if (menu) setMenu(null); else closePicker(); return; } if (e.key === (horizontal ? 'ArrowRight' : 'ArrowDown') && visible.length && !(horizontal && e.target instanceof HTMLInputElement)) { e.preventDefault(); const i = visible.findIndex(c => c.id === active?.id); setSelectedId(visible[Math.min(i + 1, visible.length - 1)].id);  } if (e.key === (horizontal ? 'ArrowLeft' : 'ArrowUp') && visible.length && !(horizontal && e.target instanceof HTMLInputElement)) { e.preventDefault(); const i = visible.findIndex(c => c.id === active?.id); setSelectedId(visible[Math.max(0, i - 1)].id);  } if (active && !(e.target instanceof HTMLSelectElement)) { const chord = shortcutFromKey(e, true); const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement; const matched = (Object.entries({...actionShortcutDefaults,...prefs.action_shortcuts}) as [ActionShortcut, string][]).find(([, value]) => value && normalizeShortcut(value) === normalizeShortcut(chord || '')); if (matched && (!typing || e.metaKey || e.ctrlKey || e.altKey || (matched[0] === 'paste' && chord === 'Enter')) ) { e.preventDefault(); menuActionRef.current(active.id, matched[0]); return; } } if ((e.key === 'F10' && e.shiftKey || e.key === 'ContextMenu') && active) { e.preventDefault(); const bounds = rowRefs.current[active.id]?.getBoundingClientRect(); if (bounds) { setSelectedId(active.id);  setMenu({ id: active.id, x: bounds.left + 20, y: bounds.bottom }); } } };
+  const openMenu = (e: React.MouseEvent, clip: Clip) => { e.preventDefault(); setSelectedId(clip.id);  setSortOpen(false); setMenu({ id: clip.id, x: e.clientX, y: e.clientY }); };
   useEffect(() => {
     if (!menu) return;
     const close = (event: PointerEvent) => { if (!(event.target as HTMLElement).closest('.context-menu')) setMenu(null); };
@@ -495,13 +446,12 @@ export function Picker() {
     window.addEventListener('keydown',key);
     return()=>window.removeEventListener('keydown',key);
   },[]);
-  useEffect(()=>{if(!prefs.rules_enabled){setSidebarToolsClip(null);pendingRules.current=null;void call('hide_rule_menu');}},[prefs.rules_enabled]);
-  const openRowRules=(clip:Clip,rect:DOMRect)=>{
+  useEffect(()=>{if(!prefs.rules_enabled){setRowRuleMenu(null);setSidebarToolsClip(null);pendingRules.current=null;void call('hide_rule_menu');}},[prefs.rules_enabled]);
+  const openRowRules=(clip:Clip,anchor:HTMLElement)=>{
     if(!prefs.rules_enabled)return;
     const rules=rowRules.filter(rule=>rule.enabled&&(rule.target??'text')===(clip.kind==='rich'?'text':clip.kind));
-    const toggle=pendingRules.current?.clip.id===clip.id;
     pendingRules.current={clip,rules};setSelectedId(clip.id);
-    void call('show_rule_menu',{toggle,id:clip.id,x:rect.left,y:rect.bottom,entries:rules.map((rule,index)=>({id:String(index),label:tr(rule.name)}))}).catch(error=>setNotice(String(error)));
+    setRowRuleMenu(current=>current?.id===clip.id?null:{id:clip.id,anchor});
   };
   menuActionRef.current = (id, choice) => {
     if(panelAction(choice))return;
@@ -520,9 +470,9 @@ export function Picker() {
       case 'copy': void action('copy_clip', { id }); break;
       case 'copy_plain': if (clip.kind === 'rich' || clip.kind === 'files') void action('copy_plain_clip', { id }); break;
       case 'copy_original': void action('copy_original_clip', { id }); break;
-      case 'preview': setPreviewId(current => current === id ? null : id); break;
+      case 'preview': setRowRuleMenu(null);setSidebarOpen(open=>!open); break;
       case 'close_tools': setSidebarToolsClip(null); break;
-      case 'tools': if(!prefs.rules_enabled)break; if(!sidebarOpen){const rect=rowRefs.current[id]?.getBoundingClientRect();if(rect&&!clip.sensitive_masked)openRowRules(clip,rect);break;} if(sidebarToolsClip?.id===id){setSidebarToolsClip(null);break;} setSidebarOpen(true); setSidebarEditingClip(null); setSidebarTokenClip(null); setSidebarToolsClip(clip); setSelectedId(clip.id); setPreviewId(null); beginEditorInput(); break;
+      case 'tools': if(!prefs.rules_enabled)break; if(!sidebarOpen){const row=rowRefs.current[id];const anchor=row?.parentElement?.querySelector<HTMLElement>('[data-row-rules]')??row;if(anchor&&!clip.sensitive_masked)openRowRules(clip,anchor);break;} if(sidebarToolsClip?.id===id){setSidebarToolsClip(null);break;} setSidebarOpen(true); setSidebarEditingClip(null); setSidebarTokenClip(null); setSidebarToolsClip(clip); setSelectedId(clip.id);  beginEditorInput(); break;
       case 'edit': openEditor(clip); break;
       case 'segment': openTokens(clip); break;
       case 'save_image': void imageAction(clip, 'save_image'); break;
@@ -544,21 +494,21 @@ export function Picker() {
       if (!search && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable)) return;
       if (target.closest('button:not(.result-row)')) return;
       event.preventDefault();
-      if ((search || !pickerRef.current?.contains(target)) && active && normalizeShortcut(prefs.action_shortcuts?.preview || '') === 'space') {
+      if (normalizeShortcut(prefs.action_shortcuts?.sidebar || '') === 'space' || normalizeShortcut(prefs.action_shortcuts?.preview || '') === 'space') {
         event.stopImmediatePropagation();
-        menuActionRef.current(active.id, 'preview');
+        if(!event.repeat&&!inputModeOpenRef.current){setRowRuleMenu(null);setSidebarOpen(open=>!open);}
       }
     };
     window.addEventListener('keydown', captureSpace, true);
     return () => window.removeEventListener('keydown', captureSpace, true);
-  }, [active?.id, query, prefs.action_shortcuts?.preview]);
+  }, [query, prefs.action_shortcuts?.preview,prefs.action_shortcuts?.sidebar]);
   const pinnedVisible = useMemo(() => visible.filter(c => c.pinned), [visible]);
   const regularVisible = useMemo(() => visible.filter(c => !c.pinned), [visible]);
   useEffect(()=>{
     const root=pickerRef.current?.parentElement;
     if(!root)return;
     const actions:Record<string,string>={};
-    for(const [action,labels] of Object.entries({settings:['打开设置','发现新版本，请到设置 → 关于更新'],sidebar:['展开侧栏','收起侧栏'],window_pin:['窗口置顶','取消窗口置顶'],search:['搜索剪贴板记录'],reveal_file:['打开文件位置'],open_image:['用系统预览打开'],save_image_as:['图片另存为'],tools:['快捷处理'],copy:['复制'],paste:['粘贴'],edit:['编辑内容'],segment:['分词'],pin:['置顶','取消置顶'],favorite:['收藏','取消收藏'],delete:['删除']}))for(const label of labels)actions[tr(label)]=action;
+    for(const [action,labels] of Object.entries({settings:['打开设置','发现新版本，请到设置 → 关于更新'],sidebar:['展开详情','收起详情'],window_pin:['窗口置顶','取消窗口置顶'],search:['搜索剪贴板记录'],reveal_file:['打开文件位置'],open_image:['用系统预览打开'],save_image_as:['图片另存为'],tools:['快捷处理'],copy:['复制'],paste:['粘贴'],edit:['编辑内容'],segment:['分词'],pin:['置顶','取消置顶'],favorite:['收藏','取消收藏'],delete:['删除']}))for(const label of labels)actions[tr(label)]=action;
     root.querySelectorAll<HTMLButtonElement>('button').forEach(button=>{
       delete button.dataset.shortcutHint;
       delete button.dataset.shortcutLen;
@@ -574,7 +524,7 @@ export function Picker() {
       button.dataset.shortcutHint=hint;
       button.dataset.shortcutLen=String(hint.length);
     });
-  },[showPositionKeys,prefs.action_shortcuts,sidebarOpen,clips,active?.id,filter,windowPinned,sort]);
+  },[showPositionKeys,prefs.action_shortcuts,sidebarOpen,clips,active?.id,filter,windowPinned,sort,prefs.panel_layout]);
   useEffect(()=>{
     let timer:number|undefined;
     const primary=navigator.userAgent.includes('Mac')?'Meta':'Control';
@@ -611,7 +561,7 @@ export function Picker() {
       ],
     ];
     const extras: MenuEntry[] = [];
-    if (!sidebarOpen) extras.push({ action: 'preview', label: '预览内容', icon: Eye, shortcut: shortcutLabel('preview') });
+
     if (textLike && !masked) {
       extras.push({ action: 'edit', label: '编辑内容', icon: Pencil, shortcut: shortcutLabel('edit') });
       if (clip.plain_text.trim()) extras.push({ action: 'segment', label: '分词', icon: WholeWord, shortcut: shortcutLabel('segment') });
@@ -634,16 +584,16 @@ export function Picker() {
   const menuRows = menuGroups.reduce((total, group) => total + group.length, 0) + Math.max(0, menuGroups.length - 1);
   const menuLeft = menu ? Math.max(6, Math.min(menu.x, window.innerWidth - 214)) : 0;
   const menuTop = menu ? Math.max(6, Math.min(menu.y, window.innerHeight - menuRows * 29 - 16)) : 0;
-  const renderRow = (c: Clip) => <div className="result-item" key={c.id} onMouseEnter={() => { if (Date.now() > scrollingUntil.current && pickerEdge === 'none' && prefs.hover_preview && !menu) { cancelHoverHide(); setHoverId(c.id); } }} onMouseLeave={() => { if (pickerEdge === 'none' && prefs.hover_preview) scheduleHoverHide(); }}>
-    <button ref={el => { if (el) rowRefs.current[c.id] = el; else delete rowRefs.current[c.id]; }} className={`result-row ${active?.id === c.id ? 'selected' : ''} ${c.kind === 'image' ? 'image-row' : 'text-row'}`} onClick={() => { setSelectedId(c.id); setPreviewId(null); if (prefs.paste_on_single_click) void paste(c); }} onContextMenu={e => openMenu(e, c)} onDoubleClick={() => { if (!prefs.paste_on_single_click) void paste(c); }}>
-      <span className="format-heading">{prefs.show_source_app_icon && pickerEdge === 'none' && <span className="row-app-shortcut"><AppIcon clip={c}/>{showPositionKeys && positionById.has(c.id) && <span className="position-key" aria-label={`快捷键 ${positionById.get(c.id)}`}>{positionById.get(c.id)}</span>}</span>}{!prefs.show_source_app_icon && showPositionKeys && positionById.has(c.id) ? <span className="row-format-shortcut position-key" aria-label={`快捷键 ${positionById.get(c.id)}`}>{positionById.get(c.id)}</span> : <span className="format-label">{clipLabel(c)}</span>}{c.favorite && <Heart size={13} fill="currentColor"/>}</span>
+  const renderRow = (c: Clip) => <div className="result-item" key={c.id}>
+    <button ref={el => { if (el) rowRefs.current[c.id] = el; else delete rowRefs.current[c.id]; }} className={`result-row ${active?.id === c.id ? 'selected' : ''} ${c.kind === 'image' ? 'image-row' : 'text-row'}`} onClick={() => { setSelectedId(c.id);  if (prefs.paste_on_single_click) void paste(c); }} onContextMenu={e => openMenu(e, c)} onDoubleClick={() => { if (!prefs.paste_on_single_click) void paste(c); }}>
+      <span className="format-heading">{prefs.show_source_app_icon && pickerEdge === 'none' && <span className="row-app-shortcut"><AppIcon clip={c}/>{showPositionKeys && positionById.has(c.id) && <span className="position-key" aria-label={`快捷键 ${positionById.get(c.id)}`}>{positionById.get(c.id)}</span>}</span>}{!prefs.show_source_app_icon && showPositionKeys && positionById.has(c.id) ? <span className="row-format-shortcut position-key" aria-label={`快捷键 ${positionById.get(c.id)}`}>{positionById.get(c.id)}</span> : <span className="format-label">{c.source_app || tr('未知应用')}</span>}{c.favorite && <Heart size={13} fill="currentColor"/>}{c.pinned && <Pin size={13}/>}</span>
       {prefs.show_source_app_icon && pickerEdge !== 'none' && <AppIcon clip={c}/>}
-      {c.kind === 'image' ? <ImageThumbnail clip={c}/> : <span className="result-text"><span className="result-summary">{clipSummary(c)}</span><span className="result-bottom">{c.favorite && <Heart size={13} fill="currentColor"/>}<span className="format-label">{clipLabel(c)}</span></span></span>}
+      {c.kind === 'image' ? <ImageThumbnail clip={c}/> : <span className="result-text"><span className="result-summary">{clipSummary(c)}</span><span className="result-bottom">{c.favorite && <Heart size={13} fill="currentColor"/>}<span className="format-label">{c.source_app || tr('未知应用')}</span></span></span>}
     </button>
     {!sidebarOpen && <div className="row-actions" role="group" aria-label={tr('记录操作')} onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') event.stopPropagation(); }}>
       {(c.kind === 'text' || c.kind === 'rich') && c.plain_text.trim() && !c.sensitive_masked && <button type="button" title={tr('分词')} aria-label={tr('分词')} disabled={busy} onMouseDown={event => event.preventDefault()} onClick={() => openTokens(c)}><WholeWord size={16}/></button>}
       {(c.kind === 'text' || c.kind === 'rich') && !c.sensitive_masked && <button type="button" title={tr('编辑内容')} aria-label={tr('编辑内容')} disabled={busy} onClick={() => openEditor(c)}><Pencil size={16}/></button>}
-      {prefs.rules_enabled && ['text', 'rich', 'image', 'files'].includes(c.kind) && !c.sensitive_masked && <button type="button" title={tr('快捷处理')} aria-label={tr('快捷处理')} disabled={busy || !rowRulesReady} onMouseDown={event => event.preventDefault()} data-row-rules onClick={event => openRowRules(c,event.currentTarget.getBoundingClientRect())}><Workflow size={16}/></button>}
+      {prefs.rules_enabled && ['text', 'rich', 'image', 'files'].includes(c.kind) && !c.sensitive_masked && <button type="button" title={tr('快捷处理')} aria-label={tr('快捷处理')} disabled={busy || !rowRulesReady} onMouseDown={event => event.preventDefault()} data-row-rules onClick={event => openRowRules(c,event.currentTarget)}><Workflow size={16}/></button>}
       <button type="button" title={tr(c.pinned ? '取消置顶' : '置顶')} aria-label={tr(c.pinned ? '取消置顶' : '置顶')} aria-pressed={c.pinned} disabled={busy} className={c.pinned ? 'is-active' : ''} onClick={() => void action('toggle_pin', { id: c.id })}><Pin size={16} fill={c.pinned ? 'currentColor' : 'none'}/></button>
       <button type="button" title={tr(c.favorite ? '取消收藏' : '收藏')} aria-label={tr(c.favorite ? '取消收藏' : '收藏')} aria-pressed={c.favorite} disabled={busy} className={c.favorite ? 'is-active' : ''} onClick={() => void action('toggle_favorite', { id: c.id })}><Heart size={16} fill={c.favorite ? 'currentColor' : 'none'}/></button>
       <button type="button" title={tr('复制')} aria-label={tr('复制')} disabled={busy||transferBusy} onClick={() => void action('copy_clip', { id: c.id }, tr('已复制'))}><Copy size={16}/></button>
@@ -710,30 +660,33 @@ export function Picker() {
     event.preventDefault();
     void getCurrentWindow().startDragging().catch(() => {});
   };
-  const isHorizontal = pickerEdge === 'top' || pickerEdge === 'bottom';
+  const isHorizontal = prefs.panel_layout === 'horizontal';
+  const layout = prefs.panel_layout;
   const displayedCardSize = resizeDrag.current?.current ?? prefs.edge_card_size;
   const edgeStyle = { '--expanded-panel-width': `${Math.min(displayedCardSize * prefs.side_columns + 7 * (prefs.side_columns - 1) + 316, window.screen.width - 16)}px`, '--edge-app-icon-size': `${Math.max(18, Math.min(38, Math.round(displayedCardSize * 0.135))) + 2}px`, '--edge-app-glyph-size': `${Math.max(12, Math.min(23, Math.round(displayedCardSize * 0.08))) + 2}px`, '--pinned-width': `${pinnedVisible.length * (displayedCardSize + 7) + 8}px`, '--thumbnail-max-height': `${pickerEdge === 'none' ? 100 : Math.max(40, displayedCardSize - 18 - (prefs.show_source_app_icon ? Math.max(18, Math.min(38, Math.round(displayedCardSize * 0.135))) + 10 : 0))}px`, '--item-max-lines': prefs.item_max_lines } as React.CSSProperties;
-  const searchBox = <div className="search-box"><Search size={19}/><input ref={searchRef} aria-label={tr('搜索剪贴板记录')} placeholder={tr('搜索')} value={query} onMouseDown={e => { if (!navigator.userAgent.includes('Windows')) return; e.preventDefault(); void call('set_picker_editing', { editing: true }).then(() => searchRef.current?.focus()); }} onBlur={() => { if (navigator.userAgent.includes('Windows')) void call('set_picker_editing', { editing: false }); }} onChange={e => { setQuery(e.target.value); setSelectedId(null); setPreviewId(null); }}/>{query && <button title={tr('清除搜索')} onClick={() => setQuery('')}><X size={15}/></button>}</div>;
+  const searchBox = <div className="search-box"><Search size={19}/><input ref={searchRef} aria-label={tr('搜索剪贴板记录')} placeholder={tr('搜索')} value={query} onMouseDown={e => { if (!navigator.userAgent.includes('Windows')) return; e.preventDefault(); void call('set_picker_editing', { editing: true }).then(() => searchRef.current?.focus()); }} onBlur={() => { if (navigator.userAgent.includes('Windows')) void call('set_picker_editing', { editing: false }); }} onChange={e => { setQuery(e.target.value); setSelectedId(null);  }}/>{query && <button title={tr('清除搜索')} onClick={() => setQuery('')}><X size={15}/></button>}</div>;
   const sortLabels: Record<ClipSort, string> = { created: '创建时间', used: '使用频率', modified: '修改时间' };
-  const sortControl = <div className="sort-control-wrap"><button type="button" className="sort-control" data-shortcut-action="sort" title={`${tr('记录排序')}：${tr(sortLabels[sort])}`} aria-label={`${tr('记录排序')}：${tr(sortLabels[sort])}`} aria-haspopup="menu" aria-expanded={sortOpen} onClick={() => setSortOpen(open => !open)}><ArrowDownUp size={14}/></button>{sortOpen && <div className="sort-menu" role="menu" aria-label={tr('记录排序')}>{(Object.keys(sortLabels) as ClipSort[]).map(key => <button key={key} type="button" role="menuitemradio" aria-checked={sort === key} onClick={() => { setSort(key); setSortOpen(false); setSelectedId(null); }}>{tr(sortLabels[key])}</button>)}</div>}</div>;
+  const sortControl = <div className="sort-control-wrap"><button type="button" className="sort-control" data-shortcut-action="sort" title={`${tr('记录排序')}：${tr(sortLabels[sort])}`} aria-label={`${tr('记录排序')}：${tr(sortLabels[sort])}`} aria-haspopup="menu" aria-expanded={sortOpen} onClick={() => setSortOpen(open => !open)}>{isHorizontal ? <ArrowDownUp size={17}/> : <>{tr(sort === 'created' ? '最新记录' : sortLabels[sort])}<ChevronDown size={12}/></>}</button>{sortOpen && <div className="sort-menu" role="menu" aria-label={tr('记录排序')}>{(Object.keys(sortLabels) as ClipSort[]).map(key => <button key={key} type="button" role="menuitemradio" aria-checked={sort === key} onClick={() => { setSort(key); setSortOpen(false); setSelectedId(null); }}>{tr(sortLabels[key])}</button>)}</div>}</div>;
   const pinWindowButton = <button className={`header-icon window-pin ${windowPinned ? 'is-active' : ''}`} title={tr(windowPinned ? '取消窗口置顶' : '窗口置顶')} aria-label={tr(windowPinned ? '取消窗口置顶' : '窗口置顶')} aria-pressed={windowPinned} onClick={() => void call<boolean>('set_picker_pinned', { pinned: !windowPinned }).then(setWindowPinned).catch(error => setNotice(`窗口置顶失败：${String(error)}`))}><AppWindow size={17}/></button>;
-  const sidebarButton = <button type="button" className={`header-icon ${sidebarOpen ? 'is-active' : ''}`} title={tr(sidebarOpen ? '收起侧栏' : '展开侧栏')} aria-label={tr(sidebarOpen ? '收起侧栏' : '展开侧栏')} aria-expanded={sidebarOpen} aria-controls="clip-detail-sidebar" onMouseDown={event => event.preventDefault()} onClick={() => setSidebarOpen(open => !open)}>{sidebarOpen ? <PanelRightClose size={17}/> : <PanelRightOpen size={17}/>}</button>;
+  const sidebarButton = <button type="button" className={`header-icon ${sidebarOpen ? 'is-active' : ''}`} title={tr(sidebarOpen ? '收起详情' : '展开详情')} aria-label={tr(sidebarOpen ? '收起详情' : '展开详情')} aria-expanded={sidebarOpen} aria-controls="clip-detail-sidebar" onMouseDown={event => event.preventDefault()} onClick={() => setSidebarOpen(open => !open)}>{isHorizontal ? sidebarOpen ? <PanelBottomClose size={17}/> : <PanelBottomOpen size={17}/> : sidebarOpen ? <PanelRightClose size={17}/> : <PanelRightOpen size={17}/>}</button>;
   const settingsButton = <button className="header-icon update-settings-button" aria-label={tr(updateAvailable ? '发现新版本，请到设置 → 关于更新' : '打开设置')} title={tr(updateAvailable ? '发现新版本，请到设置 → 关于更新' : '打开设置')} onClick={() => void call('open_settings').catch(e => setNotice(`设置无法打开：${String(e)}`))}><Settings2 size={19}/>{updateAvailable && <span className="update-dot" aria-hidden="true"/>}</button>;
-  return <div className={`picker-shell edge-${pickerEdge} side-columns-${prefs.side_columns} ${detailsActive ? 'with-details' : ''}`} style={edgeStyle} onKeyDown={onKeyDown} onMouseDown={beginWindowDrag} onMouseLeave={scheduleHoverHide}><div ref={pickerRef} className="picker" onScrollCapture={scheduleAlignPreview} onKeyUp={e => { if (e.key === 'Meta' || e.key === 'Control') setShowPositionKeys(false); }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setShowPositionKeys(false); }} onClick={e => { if (menu) setMenu(null); if (sortOpen && !(e.target as HTMLElement).closest('.sort-control-wrap')) setSortOpen(false); if (!(e.target as HTMLElement).closest('.result-row,.context-menu')) setPreviewId(null); }}>
-    {!isHorizontal && <header className="picker-header" data-tauri-drag-region={!isWindowsApp && pickerEdge === 'none' ? 'deep' : undefined}>{searchBox}{pinWindowButton}{settingsButton}{sidebarButton}</header>}
-    <div className="filter-bar" data-tauri-drag-region={!isWindowsApp && pickerEdge === 'none' ? 'deep' : undefined}><div className="filter-scroll">{filters.map(f => <button key={f.id} data-shortcut-action={f.id==='favorite'?'filter_favorite':undefined} className={filter === f.id ? 'chosen' : ''} title={tr(f.label)} aria-label={tr(f.label)} aria-pressed={filter === f.id} onClick={() => { setFilter(f.id); setSelectedId(null); setPreviewId(null); }}><f.icon size={14}/></button>)}</div>{isHorizontal && <>{pinWindowButton}{settingsButton}{searchBox}</>}{sortControl}{isHorizontal && sidebarButton}</div>
+  return <div className={`picker-shell layout-${layout} edge-${pickerEdge} side-columns-${prefs.side_columns} ${detailsActive ? 'with-details' : ''}`} style={edgeStyle} onKeyDown={onKeyDown} onMouseDown={beginWindowDrag}><div ref={pickerRef} className="picker" onKeyUp={e => { if (e.key === 'Meta' || e.key === 'Control') setShowPositionKeys(false); }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setShowPositionKeys(false); }} onClick={e => { if (menu) setMenu(null); if (sortOpen && !(e.target as HTMLElement).closest('.sort-control-wrap')) setSortOpen(false);  }}>
+    <header className="picker-header" data-tauri-drag-region={!isWindowsApp ? 'deep' : undefined}>{layout === 'sidebar' && pinWindowButton}{searchBox}<div className="picker-global-actions">{sidebarButton}{layout !== 'sidebar' && <>{pinWindowButton}{settingsButton}</>}</div></header>
+    <nav className="filter-bar" aria-label={tr('分类')} data-tauri-drag-region={!isWindowsApp ? 'deep' : undefined}><div className="filter-scroll">{filters.map(f => <button key={f.id} data-shortcut-action={f.id==='favorite'?'filter_favorite':undefined} className={filter === f.id ? 'chosen' : ''} title={tr(f.label)} aria-label={tr(f.label)} aria-pressed={filter === f.id} onClick={() => { setFilter(f.id); setSelectedId(null);  }}><f.icon size={18}/>{layout !== 'sidebar' && <span>{tr(f.label)}</span>}</button>)}</div>{layout === 'sidebar' ? <div className="navigation-bottom">{settingsButton}</div> : isHorizontal ? sortControl : null}</nav>
+    {!isHorizontal && <div className="history-heading"><strong>{tr(layout === 'sidebar' ? filters.find(f => f.id === filter)?.label ?? '全部' : '记录')}</strong>{sortControl}</div>}
     <div className="picker-body"><div className="picker-results">
-      {pinnedVisible.length > 0 && <VirtualClipList onVisibleIds={pinnedViewport} clips={pinnedVisible} className="pinned-list" label={tr('置顶记录')} edge={pickerEdge} columns={prefs.side_columns} selectedId={selectedId} resetKey={JSON.stringify([query, filter, sort])} maxLines={prefs.item_max_lines} style={isHorizontal ? { width: 'var(--pinned-width)' } : undefined} renderRow={renderRow}/>}
-      <VirtualClipList onVisibleIds={regularViewport} clips={regularVisible} className="result-list" edge={pickerEdge} columns={prefs.side_columns} selectedId={selectedId} resetKey={JSON.stringify([query, filter, sort])} maxLines={prefs.item_max_lines} renderRow={renderRow}>{visible.length === 0 && <div className="empty-state"><Search size={24}/><strong>{tr(query ? '没有匹配的记录' : '还没有记录')}</strong><span>{tr(query ? '换个关键词或类型试试' : '复制内容后会显示在这里')}</span></div>}</VirtualClipList>
+      {pinnedVisible.length > 0 && <VirtualClipList onVisibleIds={pinnedViewport} clips={pinnedVisible} className="pinned-list" label={tr('置顶记录')} edge="none" horizontal={isHorizontal} cardWidth={202} columns={1} selectedId={selectedId} resetKey={JSON.stringify([query, filter, sort, layout])} maxLines={prefs.item_max_lines} style={isHorizontal ? { width: `min(40%, ${pinnedVisible.length * 209 + 8}px)` } : undefined} renderRow={renderRow}/>}
+      <VirtualClipList onVisibleIds={regularViewport} clips={regularVisible} className="result-list" edge="none" horizontal={isHorizontal} cardWidth={202} columns={1} selectedId={selectedId} resetKey={JSON.stringify([query, filter, sort, layout])} maxLines={prefs.item_max_lines} renderRow={renderRow}>{visible.length === 0 && <div className="empty-state"><Search size={24}/><strong>{tr(query ? '没有匹配的记录' : '还没有记录')}</strong><span>{tr(query ? '换个关键词或类型试试' : '复制内容后会显示在这里')}</span></div>}</VirtualClipList>
     </div></div>
 
-    {tokenClip && <TokenDialog key={tokenClip.id} clip={tokenClip} dictionaryKey={dictionaryKey} busy={busy} onClose={() => setTokenClip(null)} onSubmit={submitFragment}/>}
-    <footer className="picker-footer" data-tauri-drag-region={!isWindowsApp && pickerEdge === 'none' ? 'deep' : undefined}><span className="picker-count">{tr('共 {count} 条').replace('{count}', clips.length.toLocaleString())}</span><button type="button" className="clear-scope-button" title={tr('清空当前筛选')} aria-label={tr('清空当前筛选')} disabled={busy||transferBusy||matchedClips.length===0} onClick={()=>{setClearError('');setClearScope({ids:matchedClips.map(clip=>clip.id)});setPreviewId(null);setSortOpen(false);void call('hide_rule_menu');}}><Trash2 size={14}/></button></footer>
+    <aside ref={previewRef} hidden={!showPreview} id="clip-detail-sidebar" className={`side-preview ${detailsActive ? 'details-sidebar' : ''}`} aria-label={tr('内容预览')}><div className="sidebar-detail-view" hidden={sidebarOpen && (sidebarEditingClip !== null || sidebarTokenClip !== null)}><ClipDetails layout={layout} rulesEnabled={prefs.rules_enabled} clip={displayedPreview} active={showPreview} expanded={sidebarOpen} busy={busy} transferBusy={transferBusy} toolsExpanded={sidebarToolsClip?.id === displayedPreview?.id && sidebarToolsClip !== null} toolsPanel={sidebarToolsClip && (sidebarToolsClip.kind === 'image' || sidebarToolsClip.kind === 'files') ? <MediaQuickTools key={sidebarToolsClip.id} clip={sidebarToolsClip} busy={busy} onBusy={setBusy} onError={setNotice}/> : sidebarToolsClip ? <QuickActionsPanel key={sidebarToolsClip.id} active={detailsActive} clip={sidebarToolsClip} busy={busy} canUndo={toolHistory.length > 0} canRedo={toolRedo.length > 0} onRedo={redoTool} onClose={() => setSidebarToolsClip(null)} onApply={applyTool} onUndo={undoTool}/> : null} onAction={(id, choice) => menuActionRef.current(id, choice)}/></div>{sidebarEditingClip && <div className="sidebar-work-view" hidden={!sidebarOpen}><ClipEditor key={sidebarEditingClip.id} embedded active={detailsActive} clip={sidebarEditingClip} busy={busy} onCancel={() => setSidebarEditingClip(null)} onBeginInput={beginEditorInput} onSave={async (content, formats) => { await saveEdit(sidebarEditingClip, content, formats); setSidebarEditingClip(null); }}/></div>}{sidebarTokenClip && <div className="sidebar-work-view" hidden={!sidebarOpen}><TokenDialog key={sidebarTokenClip.id} embedded clip={sidebarTokenClip} dictionaryKey={dictionaryKey} busy={busy} onClose={() => setSidebarTokenClip(null)} onSubmit={text => submitFragment(text, sidebarTokenClip)} onCopy={text=>copyFragment(text,sidebarTokenClip)}/></div>}{showPreview && !sidebarEditingClip && !sidebarTokenClip && !sidebarToolsClip && !displayedPreview && <div className="detail-empty">{tr(previewTargetId === null ? '选择记录以预览内容' : '预览加载中')}</div>}</aside>
+    {tokenClip && <TokenDialog key={tokenClip.id} clip={tokenClip} dictionaryKey={dictionaryKey} busy={busy} onClose={() => setTokenClip(null)} onSubmit={submitFragment} onCopy={copyFragment}/>}
+    <footer className="picker-footer" data-tauri-drag-region={!isWindowsApp && pickerEdge === 'none' ? 'deep' : undefined}><span className="picker-count">{tr('共 {count} 条').replace('{count}', clips.length.toLocaleString())}</span><button type="button" className="clear-scope-button" title={tr('清空当前筛选')} aria-label={tr('清空当前筛选')} disabled={busy||transferBusy||matchedClips.length===0} onClick={()=>{setClearError('');setClearScope({ids:matchedClips.map(clip=>clip.id)});setSortOpen(false);void call('hide_rule_menu');}}><Trash2 size={14}/></button></footer>
     {clearScope&&<ConfirmDialog title={tr('清空记录')} description={tr('将清空{count}条记录，含置顶和收藏，此操作无法恢复。').replace('{count}',String(clearScope.ids.length))+(clearError?` ${clearError}`:'')} confirmLabel={tr('清空记录')} busy={busy} onCancel={()=>{setClearScope(null);setClearError('');}} onConfirm={()=>{if(busy)return;const scope=clearScope;setBusy(true);setClearError('');void call('clear_clips',{ids:scope.ids}).then(()=>{removeClips(scope.ids);setClearScope(null);}).catch(error=>setClearError(tr(String(error)))).finally(()=>setBusy(false));}}/>}
     {deleteId !== null && <ConfirmDialog title={tr('删除记录')} description={tr('删除这条记录？删除后无法恢复。')} confirmLabel={tr('删除')} busy={busy} onCancel={() => setDeleteId(null)} onConfirm={() => { const id = deleteId; setDeleteId(null); void action('delete_clip', { id }); }}/>}
     {editingClip && <div className="clip-edit-backdrop" onClick={event => event.stopPropagation()}><ClipEditor key={editingClip.id} clip={editingClip} busy={busy} onCancel={() => setEditingClip(null)} onBeginInput={beginEditorInput} onSave={async (content, formats) => { await saveEdit(editingClip, content, formats); setEditingClip(null); }}/></div>}
 
     {pickerEdge !== 'none' && <div className={`resize-edge resize-${pickerEdge}`} role="separator" aria-label={tr('拖动面板边缘调整大小')} onPointerDown={beginResize} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} onLostPointerCapture={endResize}/>}
     {notice && <div className="toast" role="status">{trNotice(notice)}<button title={tr('关闭提示')} onClick={() => setNotice('')}><X size={14}/></button></div>}
-  </div><aside ref={previewRef} hidden={!showPreview} id="clip-detail-sidebar" className={`side-preview ${detailsActive ? 'details-sidebar' : ''}`} aria-label={tr('内容预览')}><div className="sidebar-detail-view" hidden={sidebarOpen && (sidebarEditingClip !== null || sidebarTokenClip !== null)}><ClipDetails rulesEnabled={prefs.rules_enabled} clip={displayedPreview} active={showPreview} expanded={sidebarOpen} busy={busy} transferBusy={transferBusy} toolsExpanded={sidebarToolsClip?.id === displayedPreview?.id && sidebarToolsClip !== null} toolsPanel={sidebarToolsClip && (sidebarToolsClip.kind === 'image' || sidebarToolsClip.kind === 'files') ? <MediaQuickTools key={sidebarToolsClip.id} clip={sidebarToolsClip} busy={busy} onBusy={setBusy} onError={setNotice}/> : sidebarToolsClip ? <QuickActionsPanel key={sidebarToolsClip.id} active={detailsActive} clip={sidebarToolsClip} busy={busy} canUndo={toolHistory.length > 0} canRedo={toolRedo.length > 0} onRedo={redoTool} onClose={() => setSidebarToolsClip(null)} onApply={applyTool} onUndo={undoTool}/> : null} onAction={(id, choice) => menuActionRef.current(id, choice)}/></div>{sidebarEditingClip && <div className="sidebar-work-view" hidden={!sidebarOpen}><ClipEditor key={sidebarEditingClip.id} embedded active={detailsActive} clip={sidebarEditingClip} busy={busy} onCancel={() => setSidebarEditingClip(null)} onBeginInput={beginEditorInput} onSave={async (content, formats) => { await saveEdit(sidebarEditingClip, content, formats); setSidebarEditingClip(null); }}/></div>}{sidebarTokenClip && <div className="sidebar-work-view" hidden={!sidebarOpen}><TokenDialog key={sidebarTokenClip.id} embedded clip={sidebarTokenClip} dictionaryKey={dictionaryKey} busy={busy} onClose={() => setSidebarTokenClip(null)} onSubmit={text => submitFragment(text, sidebarTokenClip)}/></div>}{showPreview && !sidebarEditingClip && !sidebarTokenClip && !sidebarToolsClip && !displayedPreview && <div className="detail-empty">{tr(previewTargetId === null ? '选择记录以预览内容' : '预览加载中')}</div>}</aside>{menu && menuClip && <div className="context-menu" role="menu" aria-label={tr('记录操作')} style={{ left: menuLeft, top: menuTop }} onContextMenu={event => event.preventDefault()}>{menuGroups.map((group, index) => <div className="context-menu-group" key={index}>{index > 0 && <div className="menu-divider"/>}{group.map(entry => <button key={entry.action} type="button" role="menuitem" className={entry.danger ? 'danger' : ''} onClick={() => { const id = menu.id; setMenu(null); menuActionRef.current(id, entry.action); }}><entry.icon size={15}/><span>{tr(entry.label)}</span>{entry.shortcut && <span className="menu-shortcut">{entry.shortcut}</span>}</button>)}</div>)}</div>}</div>;
+  </div>{rowRuleMenu&&<RuleListPopover anchor={rowRuleMenu.anchor} rules={pendingRules.current?.rules??[]} onClose={closeRowRules} onSelect={index=>{const id=rowRuleMenu.id;setRowRuleMenu(null);menuActionRef.current(id,`rule-${index}`);}}/>}{menu && menuClip && <div className="context-menu" role="menu" aria-label={tr('记录操作')} style={{ left: menuLeft, top: menuTop }} onContextMenu={event => event.preventDefault()}>{menuGroups.map((group, index) => <div className="context-menu-group" key={index}>{index > 0 && <div className="menu-divider"/>}{group.map(entry => <button key={entry.action} type="button" role="menuitem" className={entry.danger ? 'danger' : ''} onClick={() => { const id = menu.id; setMenu(null); menuActionRef.current(id, entry.action); }}><entry.icon size={15}/><span>{tr(entry.label)}</span>{entry.shortcut && <span className="menu-shortcut">{entry.shortcut}</span>}</button>)}</div>)}</div>}</div>;
 }

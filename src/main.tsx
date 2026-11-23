@@ -6,6 +6,7 @@ import { Picker } from './windows/Picker';
 import { PreviewWindow } from './windows/PreviewWindow';
 import { SettingsWindow } from './windows/SettingsWindow';
 import './style.css';
+import './picker-layout.css';
 
 // Prefer the explicit query parameter for backwards compatibility, but derive
 // the view from the window label when there is none. On Windows, Tauri builds

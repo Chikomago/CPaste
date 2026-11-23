@@ -109,7 +109,7 @@ jobs:
           test "$(find release-assets -type f | wc -l)" -eq 6
           retry gh release view "$RELEASE_TAG" --json body --jq .body > current-notes.md
           if ! grep -q '仅替换 macOS 安装包' current-notes.md; then
-            printf '\n本次为同版本重新构建，仅替换 macOS 安装包（Apple Silicon aarch64 与 Intel x64）。已安装 %s 的用户需要手动下载覆盖安装；Windows 安装包与绿色版资产未变更。\n' "${RELEASE_TAG#v}" >> current-notes.md
+            printf '\n本次为同版本重新构建，仅替换 macOS 安装包（Apple Silicon aarch64 与 Intel x64）。已安装 %s 的用户需要手动下载覆盖安装；其它资产不受本次操作影响。\n' "${RELEASE_TAG#v}" >> current-notes.md
           fi
           retry gh release edit "$RELEASE_TAG" --draft=true
           touch release-hidden

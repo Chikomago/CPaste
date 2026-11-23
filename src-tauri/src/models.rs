@@ -8,6 +8,7 @@ use std::sync::Mutex;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Preferences {
+    pub(crate) panel_layout: String,
     pub(crate) developer_mode: bool,
     pub(crate) rules_enabled: bool,
     pub(crate) lightweight_mode: bool,
@@ -51,9 +52,22 @@ pub(crate) struct Preferences {
     pub(crate) excluded_apps: Vec<String>,
     pub(crate) sensitive_action: String,
 }
+impl Preferences {
+    pub(crate) fn picker_size(&self, details: bool) -> (f64, f64) {
+        match (self.panel_layout.as_str(), details) {
+            ("horizontal", true) => (800.0, 660.0),
+            ("horizontal", false) => (800.0, 318.0),
+            ("columns", true) => (800.0, 660.0),
+            ("columns", false) => (342.0, 660.0),
+            (_, true) => (728.0, 660.0),
+            (_, false) => (378.0, 660.0),
+        }
+    }
+}
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            panel_layout: "sidebar".into(),
             developer_mode: false,
             rules_enabled: true,
             lightweight_mode: true,

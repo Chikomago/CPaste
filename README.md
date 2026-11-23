@@ -8,13 +8,11 @@ A local clipboard history app. The clipboard is used constantly in everyday work
 
 Fully local with no network access, except for downloading dictionaries and updates.
 
-[Download installer](https://github.com/Chikomago/CPaste/releases/latest) · [Windows portable (no install)](https://github.com/Chikomago/CPaste/releases/latest)
-
-A no-install Windows zip is published alongside the installer: extract it and run `CPaste.exe`. It still stores data in the Tauri app data directory (`%APPDATA%\app.cpaste.desktop\`) and is not part of the updater manifest; see `README-PORTABLE.txt` inside the zip for details.
+[Download installer](https://github.com/Chikomago/CPaste/releases/latest)
 
 ## Interface preview
 
-Each image compares the same layout with details expanded and collapsed, using demo content.
+Three layouts to choose from.
 
 ### Sidebar navigation
 
@@ -27,6 +25,10 @@ Each image compares the same layout with details expanded and collapsed, using d
 ### Column browsing
 
 ![Column browsing with details expanded and collapsed](assets/screenshots/layout-columns.png)
+
+### Settings
+
+![Settings interface](assets/screenshots/settings.png)
 
 ## Features
 

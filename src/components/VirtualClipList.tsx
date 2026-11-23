@@ -21,6 +21,8 @@ type Props = {
   clips: Clip[];
   className: string;
   edge: TriggerEdge;
+  horizontal?: boolean;
+  cardWidth?: number;
   columns: number;
   selectedId: number | null;
   resetKey: string;
@@ -33,14 +35,14 @@ type Props = {
 };
 
 /** Each virtual item is one row of cards, so two-column layouts stay aligned. */
-export function VirtualClipList({ clips, className, edge, columns, selectedId, resetKey, maxLines, style, label, children, renderRow, onVisibleIds }: Props) {
+export function VirtualClipList({ clips, className, edge, columns, selectedId, resetKey, maxLines, style, label, children, renderRow, onVisibleIds, horizontal: horizontalLayout, cardWidth }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const scrolledSelection=useRef<number|null>(null);
   const [rect, setRect] = useState({ width: 350, height: 0 });
-  const horizontal = edge === 'top' || edge === 'bottom';
+  const horizontal = horizontalLayout ?? (edge === 'top' || edge === 'bottom');
   const side = edge === 'left' || edge === 'right';
   const lanes = side ? columns : 1;
-  const cardSize = horizontal ? Math.max(1, rect.height - 14) : Math.max(1, (rect.width - 14 - (lanes - 1) * 7) / lanes);
+  const cardSize = horizontal ? cardWidth ?? Math.max(1, rect.height - 14) : Math.max(1, (rect.width - 14 - (lanes - 1) * 7) / lanes);
   const virtual = useVirtualizer({
     count: Math.ceil(clips.length / lanes),
     getScrollElement: () => host.current,

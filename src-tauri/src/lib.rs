@@ -1,5 +1,6 @@
 mod js_rules;
 mod js_runtime;
+mod panel_geometry;
 use crate::capture::Handler;
 use crate::database::{load_prefs, open_db};
 use crate::menus::build_tray_menu;
@@ -371,6 +372,7 @@ pub fn run() {
                 clipboard::copy_original_clip,
                 clipboard::paste_clip,
                 clipboard::paste_text_fragment,
+                clipboard::copy_text_fragment,
                 content_tools::get_transform_source,
                 content_tools::save_image,
                 content_tools::open_image,
@@ -390,6 +392,7 @@ pub fn run() {
                 windows::set_picker_editing,
                 windows::hide_picker,
                 windows::resize_edge_picker,
+                windows::resize_picker,
                 windows::reveal_picker,
                 windows::open_settings
             ];

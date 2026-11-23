@@ -6,6 +6,19 @@ export function setLanguage(language: Language) {
 }
 export function isEnglish() { return current === 'en-US'; }
 const english: Record<string, string> = {
+  "打开详情":"Toggle details",
+  "展开详情":"Show details",
+  "收起详情":"Hide details",
+  "默认打开详情":"Show details by default",
+  "没有可用规则":"No rules available",
+  "面板布局":"Panel layout",
+  "侧栏导航":"Sidebar navigation",
+  "横向浏览":"Horizontal browsing",
+  "分列浏览":"Column browsing",
+  "最新记录":"Latest records",
+  "记录":"History",
+  "操作":"Actions",
+  "面板布局无效":"Invalid panel layout",
   "诊断":"Diagnostics",
   "诊断模式":"Diagnostic mode",
   "记录设备、系统、版本、操作和耗时，不记录剪贴板内容":"Log device, system, version, operations and timings without clipboard contents",
