@@ -12,6 +12,22 @@ Fully local with no network access, except for downloading dictionaries and upda
 
 A no-install Windows zip is published alongside the installer: extract it and run `CPaste.exe`. It still stores data in the Tauri app data directory (`%APPDATA%\app.cpaste.desktop\`) and is not part of the updater manifest; see `README-PORTABLE.txt` inside the zip for details.
 
+## Interface preview
+
+Each image compares the same layout with details expanded and collapsed, using demo content.
+
+### Sidebar navigation
+
+![Sidebar navigation with details expanded and collapsed](assets/screenshots/layout-sidebar.png)
+
+### Horizontal browsing
+
+![Horizontal browsing with details expanded and collapsed](assets/screenshots/layout-horizontal.png)
+
+### Column browsing
+
+![Column browsing with details expanded and collapsed](assets/screenshots/layout-columns.png)
+
 ## Features
 
 - Basics: Save text, rich text, images, and file records, with search, sorting, editing, pinning, and favorites.

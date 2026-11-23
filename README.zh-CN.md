@@ -12,6 +12,22 @@
 
 同一 Release 里还提供 Windows 免安装压缩包：解压后运行 `CPaste.exe` 即可。数据仍保存在 Tauri 应用数据目录（`%APPDATA%\app.cpaste.desktop\`），且不参与自动更新清单，详见压缩包内 `README-PORTABLE.txt`。
 
+## 界面预览
+
+每张图展示同一布局展开和收起详情的状态，使用演示数据。
+
+### 侧栏导航
+
+![侧栏导航：展开与收起详情对照](assets/screenshots/layout-sidebar.png)
+
+### 横向浏览
+
+![横向浏览：展开与收起详情对照](assets/screenshots/layout-horizontal.png)
+
+### 分列浏览
+
+![分列浏览：展开与收起详情对照](assets/screenshots/layout-columns.png)
+
 ## 功能
 
 - 基础：保存文本、富文本、图片和文件记录，支持搜索、排序、编辑、置顶和收藏。
