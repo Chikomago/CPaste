@@ -43,7 +43,7 @@ pub(crate) fn migrate_clip_sort_fields(c: &Connection) -> Result<(), String> {
     Ok(())
 }
 pub(crate) fn load_prefs(c: &Connection) -> Preferences {
-    let value: Preferences = c
+    let mut value: Preferences = c
         .query_row(
             "SELECT value FROM app_settings WHERE key='preferences'",
             [],
@@ -52,6 +52,16 @@ pub(crate) fn load_prefs(c: &Connection) -> Preferences {
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
+    if value.action_shortcuts.get("sidebar").map(String::as_str) == Some("CommandOrControl+B")
+        && value.action_shortcuts.get("preview").map(String::as_str) == Some("Space")
+    {
+        value
+            .action_shortcuts
+            .insert("sidebar".into(), "Space".into());
+        value
+            .action_shortcuts
+            .insert("preview".into(), String::new());
+    }
     value
 }
 pub(crate) fn database_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {

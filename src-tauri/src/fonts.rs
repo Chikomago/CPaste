@@ -90,9 +90,7 @@ fn windows_font_families() -> Vec<String> {
     ];
     let mut fonts = Vec::new();
     for hive in hives {
-        let output = Command::new("reg")
-            .args(["query", hive])
-            .output();
+        let output = Command::new("reg").args(["query", hive]).output();
         let Ok(output) = output else { continue };
         if !output.status.success() {
             continue;

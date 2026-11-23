@@ -477,6 +477,22 @@ mod fragment_tests {
     }
 }
 #[tauri::command]
+pub(crate) async fn copy_text_fragment(
+    app: AppHandle,
+    s: tauri::State<'_, Arc<State>>,
+    id: i64,
+    text: String,
+) -> Result<(), String> {
+    let state = s.inner().clone();
+    clipboard_task(move || {
+        validate_fragment(&state, id, &text)?;
+        write_plain_text(&state, &text)?;
+        let _ = mark_clip_used(&app, &state, id);
+        Ok(())
+    })
+    .await
+}
+#[tauri::command]
 pub(crate) async fn paste_text_fragment(
     app: AppHandle,
     s: tauri::State<'_, Arc<State>>,

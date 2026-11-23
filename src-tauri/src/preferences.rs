@@ -79,6 +79,9 @@ pub(crate) async fn save_preferences(
     .await
 }
 pub(crate) fn validate_preferences(preferences: &Preferences) -> Result<(), String> {
+    if !["sidebar", "horizontal", "columns"].contains(&preferences.panel_layout.as_str()) {
+        return Err("面板布局无效".into());
+    }
     crate::segmentation::dictionary_words(&preferences.segment_custom_words)?;
     let mut seen = HashSet::new();
     for (action, shortcut) in &preferences.action_shortcuts {

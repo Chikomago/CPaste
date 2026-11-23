@@ -151,7 +151,12 @@ pub(crate) mod outside_click {
         if unsafe { IsWindowVisible(hwnd) } == 0 {
             return 1;
         }
-        let mut rect = Rect { left: 0, top: 0, right: 0, bottom: 0 };
+        let mut rect = Rect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
         if unsafe { GetWindowRect(hwnd, &mut rect) } != 0 {
             rects.push(rect);
         }
@@ -360,6 +365,61 @@ pub(crate) fn full_monitor_area(monitor: &tauri::Monitor) -> tauri::PhysicalRect
         size: *monitor.size(),
     }
 }
+fn apply_picker_bounds(
+    window: &tauri::WebviewWindow,
+    monitor: &tauri::Monitor,
+    width: f64,
+    height: f64,
+    anchor: Option<(f64, f64)>,
+) -> Result<(f64, f64), String> {
+    let area = monitor.work_area();
+    let scale = monitor.scale_factor();
+    let bounds = crate::panel_geometry::fit_panel(
+        (area.position.x, area.position.y),
+        (area.size.width, area.size.height),
+        scale,
+        (width, height),
+        anchor,
+    );
+    let position = tauri::PhysicalPosition::new(bounds.x, bounds.y);
+    let size = tauri::PhysicalSize::new(bounds.width, bounds.height);
+    // Move before expanding so the newly exposed part stays on screen. Avoid
+    // redundant move events; drag/scale correction can safely call this again.
+    if window.outer_position().ok() != Some(position) {
+        window.set_position(position).map_err(err)?;
+    }
+    if window.inner_size().ok() != Some(size) {
+        window.set_size(size).map_err(err)?;
+    }
+    Ok((bounds.width as f64 / scale, bounds.height as f64 / scale))
+}
+
+#[tauri::command]
+pub(crate) fn resize_picker(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
+    if !width.is_finite()
+        || !height.is_finite()
+        || !(120.0..=1000.0).contains(&width)
+        || !(180.0..=1000.0).contains(&height)
+    {
+        return Err("面板尺寸超出允许范围".into());
+    }
+    let window = app.get_webview_window("main").ok_or("选择面板不可用")?;
+    let monitor = window
+        .current_monitor()
+        .map_err(err)?
+        .or_else(|| app.primary_monitor().ok().flatten())
+        .ok_or("无法确定面板所在屏幕")?;
+    let position = window.outer_position().map_err(err)?;
+    apply_picker_bounds(
+        &window,
+        &monitor,
+        width,
+        height,
+        Some((position.x as f64, position.y as f64)),
+    )?;
+    Ok(())
+}
+
 pub(crate) fn show_picker(app: &AppHandle) {
     crate::diagnostics::record("picker_show", serde_json::json!({}));
     refresh_tray_icon(app);
@@ -375,58 +435,35 @@ pub(crate) fn show_picker(app: &AppHandle) {
             .unwrap_or_default();
         let edge = "none".to_string();
         let cursor = app.cursor_position().ok();
-        let monitor = cursor.as_ref().and_then(|cursor| {
-            app.available_monitors()
-                .ok()?
-                .into_iter()
-                .find(|monitor| cursor_on_monitor(*cursor, *monitor.position(), *monitor.size()))
-        });
-        let scale = monitor.as_ref().map(|m| m.scale_factor()).unwrap_or(1.0);
-        // Hover previews live in a separate window now; only the expanded
-        // in-window details sidebar still needs the extra width.
-        let width = if picker_prefs.default_sidebar_open {
-            650.0
-        } else {
-            350.0
-        };
-        let height = 600.0;
-        if let Err(error) = window.set_size(tauri::LogicalSize::new(width, height)) {
-            eprintln!("CPaste 面板尺寸设置失败：{error}");
-        }
-        let mut position = None;
-        if let (Some(cursor), Some(monitor)) = (cursor, monitor) {
-            let area = monitor.work_area();
-            let left = area.position.x;
-            let top = area.position.y;
-            let right = left + area.size.width as i32;
-            let bottom = top + area.size.height as i32;
-            let panel_width = (width * scale).round() as i32;
-            let panel_height = (height * scale).round() as i32;
-            let max_x = right.saturating_sub(panel_width).max(left);
-            let max_y = bottom.saturating_sub(panel_height).max(top);
-            let (x, y) = if picker_prefs.popup_position == "cursor" {
-                (
-                    (cursor.x as i32 + 12).clamp(left, max_x),
-                    (cursor.y as i32 + 12).clamp(top, max_y),
-                )
+        let monitor = cursor
+            .as_ref()
+            .and_then(|cursor| {
+                app.available_monitors().ok()?.into_iter().find(|monitor| {
+                    cursor_on_monitor(*cursor, *monitor.position(), *monitor.size())
+                })
+            })
+            .or_else(|| window.current_monitor().ok().flatten())
+            .or_else(|| app.primary_monitor().ok().flatten());
+        let (mut width, mut height) = picker_prefs.picker_size(picker_prefs.default_sidebar_open);
+        if let Some(monitor) = monitor {
+            let anchor = if picker_prefs.popup_position == "cursor" {
+                cursor.map(|cursor| (cursor.x + 12.0, cursor.y + 12.0))
             } else {
-                (
-                    (left + (area.size.width as i32 - panel_width) / 2).clamp(left, max_x),
-                    top + (area.size.height as i32 - panel_height) / 2,
-                )
+                None
             };
-            position = Some(tauri::PhysicalPosition::new(
-                x.clamp(left, max_x),
-                y.clamp(top, max_y),
-            ));
+            match apply_picker_bounds(&window, &monitor, width, height, anchor) {
+                Ok(size) => {
+                    width = size.0;
+                    height = size.1;
+                }
+                Err(error) => eprintln!("CPaste 面板位置设置失败：{error}"),
+            }
+        } else {
+            let _ = window.set_size(tauri::LogicalSize::new(width, height));
+            let _ = window.center();
         }
         #[cfg(target_os = "macos")]
         {
-            if let Some(position) = position {
-                let _ = window.set_position(position);
-            } else {
-                let _ = window.center();
-            }
             let _ = window.emit(
                 "picker-opening",
                 PickerOpening {
@@ -439,11 +476,6 @@ pub(crate) fn show_picker(app: &AppHandle) {
         }
         #[cfg(target_os = "windows")]
         {
-            if let Some(position) = position {
-                let _ = window.set_position(position);
-            } else {
-                let _ = window.center();
-            }
             let _ = window.set_focusable(true);
             let _ = window.emit(
                 "picker-opening",

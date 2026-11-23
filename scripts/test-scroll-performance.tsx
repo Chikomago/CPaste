@@ -298,13 +298,15 @@ test('embedded segmentation composes and submits in the sidebar without a modal'
   const { TokenDialog } = await import('../src/components/TokenDialog');
   const clip = { ...clips[1], kind: 'text', plain_text: '剪贴板内容' } as Clip;
   const container = document.createElement('div'); document.body.append(container);
-  const root = createRoot(container); let submitted = ''; let closed = false;
-  await act(async () => { root.render(<TokenDialog embedded clip={clip} dictionaryKey="test" busy={false} onClose={() => { closed = true; }} onSubmit={async text => { submitted = text; }}/>); await settle(); });
+  const root = createRoot(container); let submitted = '';let copied=''; let closed = false;
+  await act(async () => { root.render(<TokenDialog embedded clip={clip} dictionaryKey="test" busy={false} onClose={() => { closed = true; }} onSubmit={async text => { submitted = text; }} onCopy={async text=>{copied=text;}}/>); await settle(); });
   assert.equal(container.querySelector('[role="dialog"]'), null);
   assert.equal(container.querySelector('.clip-edit-backdrop'), null);
   const word = [...container.querySelectorAll('.token-list button')].find(button => button.textContent === '剪贴板') as HTMLButtonElement;
   await act(async () => word.click());
   assert.equal(container.querySelector('[aria-label="组词区域"]')!.textContent, '剪贴板');
+  await act(async()=>{(container.querySelector('.token-transfer-actions button:not(.primary)')as HTMLButtonElement).click();await settle();});
+  assert.equal(copied,'剪贴板');assert.equal(closed,false);
   await act(async () => (container.querySelector('.primary') as HTMLButtonElement).click());
   assert.equal(submitted, '剪贴板');
   await act(async () => (container.querySelector('button[aria-label="返回详情"]') as HTMLButtonElement).click());
@@ -390,7 +392,7 @@ test('a list refresh started before an image patch cannot restore an old preview
  const ipc=mockRuleIpc([],command=>{if(command==='get_preferences')return {...defaults};if(command==='list_clips')return defer?new Promise(resolve=>{finish=resolve;}):[clip];if(command==='get_clip_image_path'||command==='get_clip_thumbnail_path')return stored;return null;});
  const container=document.createElement('div');document.body.append(container);const root=createRoot(container);await act(async()=>{root.render(<Picker/>);await settle();});
  assert.equal(container.querySelector('.image-file-info'),null);
- await act(async()=>{(container.querySelector('[aria-label="展开侧栏"]')as HTMLButtonElement).click();await settle();});assert.equal(container.querySelector('.preview-body img')?.getAttribute('src'),'asset://localhost/original');assert.ok(container.querySelector('.preview-stats')?.textContent?.includes('PNG'));assert.ok(container.querySelector('.preview-stats')?.textContent?.includes('2 KB'));
+ await act(async()=>{(container.querySelector('[aria-label="展开详情"]')as HTMLButtonElement).click();await settle();});assert.equal(container.querySelector('.preview-body img')?.getAttribute('src'),'asset://localhost/original');assert.ok(container.querySelector('.preview-stats')?.textContent?.includes('PNG'));assert.ok(container.querySelector('.preview-stats')?.textContent?.includes('2 KB'));
  defer=true;await act(async()=>{ipc.emit(null,'clips-changed');await settle();});assert.equal(typeof finish,'function');stored='modified';await act(async()=>{ipc.emit({id:clip.id,revision:'2026-11-15T00:00:01.123Z'},'image-content-changed');await settle();});assert.equal(container.querySelector('.preview-body img')?.getAttribute('src'),'asset://localhost/modified');
  await act(async()=>{finish([clip]);await settle();});assert.equal(container.querySelector('.preview-body img')?.getAttribute('src'),'asset://localhost/modified');await act(async()=>root.unmount());container.remove();
 });
@@ -413,7 +415,7 @@ test('position shortcut candidates follow the viewport and exclude overscan rows
 
 test('panel shortcuts work without a selected record and preserve configurable bindings',async()=>{
  const {Picker}=await import('../src/windows/Picker');const {defaults}=await import('../src/preferences');
- const ipc=mockRuleIpc([],command=>command==='get_preferences'?{...defaults}:command==='list_clips'?[]:null);
+ const ipc=mockRuleIpc([],command=>command==='get_preferences'?{...defaults,action_shortcuts:{...defaults.action_shortcuts,sidebar:'CommandOrControl+B'}}:command==='list_clips'?[]:null);
  const container=document.createElement('div');document.body.append(container);const root=createRoot(container);
  await act(async()=>{root.render(<Picker/>);await settle();});await act(settle);
  const press=async(code:string,key:string,altKey=false,shiftKey=false)=>act(async()=>{
@@ -424,7 +426,7 @@ test('panel shortcuts work without a selected record and preserve configurable b
  await press('KeyS','s',true);
  assert.ok(ipc.calls.some(call=>call.command==='open_settings'));
  await press('KeyB','b');
- assert.ok(container.querySelector('[aria-label="收起侧栏"]'));
+ assert.ok(container.querySelector('[aria-label="收起详情"]'));
  await press('Digit4','4',true);
  assert.equal(container.querySelector('.filter-scroll [aria-label="全部"]')?.getAttribute('aria-pressed'),'true');
  await press('ArrowRight','ArrowRight',true);
@@ -494,7 +496,7 @@ test('sidebar copy stays local and usage patches do not reload the panel',async(
  const ipc=mockRuleIpc([],command=>command==='get_preferences'?{...defaults,default_sidebar_open:true}:command==='list_clips'?[record]:['copy_clip','paste_clip'].includes(command)?new Promise(resolve=>{finish=resolve;}):null);
  const container=document.createElement('div');document.body.append(container);const root=createRoot(container);
  await act(async()=>{root.render(<Picker/>);await settle();});await act(settle);
- await act(async()=>{(container.querySelector('[aria-label="展开侧栏"]')as HTMLButtonElement)?.click();await settle();});
+ await act(async()=>{(container.querySelector('[aria-label="展开详情"]')as HTMLButtonElement)?.click();await settle();});
  await act(async()=>{(container.querySelector('.clip-transfer-main[aria-label="复制"]')as HTMLButtonElement).click();await settle();});
  assert.equal((container.querySelector('.clip-details-toolbar button[aria-label="删除"]')as HTMLButtonElement).disabled,false,'copy must not lock unrelated sidebar actions');
  const reads=ipc.calls.filter(call=>call.command==='list_clips').length;
@@ -579,7 +581,7 @@ test('sidebar deletion keeps the sidebar open while a window-wide confirmation i
  const ipc=mockRuleIpc([],command=>command==='get_preferences'?{...defaults}:command==='list_clips'?[record]:null);
  const container=document.createElement('div');document.body.append(container);const root=createRoot(container);
  await act(async()=>{root.render(<Picker/>);await settle();});await act(settle);
- await act(async()=>{(container.querySelector('[aria-label="展开侧栏"]')as HTMLButtonElement).click();await settle();});
+ await act(async()=>{(container.querySelector('[aria-label="展开详情"]')as HTMLButtonElement).click();await settle();});
  const sidebar=container.querySelector('aside')!;
  await act(async()=>{(container.querySelector('.clip-details-toolbar [aria-label="删除"]')as HTMLButtonElement).click();await settle();});
  assert.ok(container.querySelector('.picker-shell.with-details'));assert.equal(sidebar.hidden,false);
@@ -664,4 +666,58 @@ test('rules master switch hides row and sidebar entries and blocks the rules sho
  assert.equal(ipc.calls.filter(call=>call.command==='show_rule_menu').length,opens);
  prefs={...prefs,rules_enabled:true};await act(async()=>{ipc.emit(null,'preferences-changed');await settle();});assert.ok(host.querySelector('[data-row-rules]'));
  await act(async()=>root.unmount());host.remove();
+});
+
+test('panel layouts share actions and context menus, retain selection and resize with details',async()=>{
+ const {Picker}=await import('../src/windows/Picker');const {defaults}=await import('../src/preferences');
+ const {panelSize}=await import('../src/lib/panel-layout');
+ const clips=[{id:901,kind:'rich',title:'Layout fixture',plain_text:'Shared clipboard content',files:[],source_app:'Test',source_path:'',created_at:new Date().toISOString(),updated_at:new Date().toISOString(),use_count:1,pinned:false,favorite:false,sensitive_masked:false}];
+ let preferences={...defaults};
+ const ipc=mockRuleIpc([],async(command,args)=>{if(command==='get_preferences')return preferences;if(command==='list_clips')return clips;if(command==='get_preview_clip')return{...clips[0],file_sizes:[]};if(command==='is_picker_pinned')return false;return null;});
+ const container=document.createElement('div');document.body.append(container);const root=createRoot(container);
+ await act(async()=>{root.render(<Picker/>);await settle();});await act(settle);
+ for(const layout of ['sidebar','horizontal','columns'] as const){
+  preferences={...preferences,panel_layout:layout};
+  await act(async()=>{ipc.emit(null,'preferences-changed');await settle();});
+  assert.ok(container.querySelector(`.picker-shell.layout-${layout}`));
+  const row=container.querySelector('.result-row')as HTMLButtonElement;
+  await act(async()=>{row.click();(container.querySelector('[aria-label="展开详情"]')as HTMLButtonElement).click();await settle();});
+  assert.ok(container.querySelector('.result-row.selected'));
+  assert.equal(container.querySelectorAll('.clip-transfer-main').length,2);
+  const pin=container.querySelector('.clip-details-toolbar button[aria-label="置顶"]')as HTMLButtonElement;
+  assert.ok(pin,`${layout}: existing management actions remain available`);
+  assert.equal(!!pin.querySelector('span'),layout==='columns');
+  const openingSize=ipc.calls.filter(call=>call.command==='resize_picker').at(-1)!.args;
+  assert.equal(openingSize.width,panelSize(layout,true).width);
+  assert.equal(openingSize.height,panelSize(layout,true).height);
+  await act(async()=>{row.dispatchEvent(new window.MouseEvent('contextmenu',{bubbles:true,clientX:40,clientY:150}));await settle();});
+  assert.ok(container.querySelector('.context-menu'),'right-click still opens the existing context menu');
+  await act(async()=>{(container.querySelector('[aria-label="收起详情"]')as HTMLButtonElement).click();await settle();});
+  const closedSize=ipc.calls.filter(call=>call.command==='resize_picker').at(-1)!.args;
+  assert.equal(closedSize.width,panelSize(layout,false).width);
+  assert.equal(closedSize.height,panelSize(layout,false).height);
+ }
+ await act(async()=>root.unmount());container.remove();
+});
+
+test('Space toggles details and row rules remain anchored inside the picker without native popups',async()=>{
+ const {Picker}=await import('../src/windows/Picker');const {defaults}=await import('../src/preferences');
+ const clip={id:902,kind:'text',title:'Rule fixture',plain_text:'  example  ',files:[],source_app:'Test',source_path:'',created_at:new Date().toISOString(),updated_at:new Date().toISOString(),use_count:0,pinned:false,favorite:false,sensitive_masked:false};
+ const ipc=mockRuleIpc([],async command=>command==='get_preferences'?defaults:command==='list_clips'?[clip]:null);
+ const container=document.createElement('div');document.body.append(container);const root=createRoot(container);
+ await act(async()=>{root.render(<Picker/>);await settle();});await act(settle);
+ assert.equal(container.querySelector('.picker-brand'),null,'logo is replaced by window pin');
+ assert.ok(container.querySelector('.picker-header .window-pin'));
+ const search=container.querySelector('.search-box input')as HTMLInputElement;
+ for(const expanded of [true,false]){
+  await act(async()=>{search.dispatchEvent(new window.KeyboardEvent('keydown',{key:' ',code:'Space',bubbles:true,cancelable:true}));await settle();});
+  assert.equal(container.querySelector('[aria-label="收起详情"]')!==null,expanded);
+ }
+ const trigger=container.querySelector('[data-row-rules]')as HTMLButtonElement;
+ await act(async()=>{trigger.click();await settle();});
+ assert.ok(container.querySelector('.inline-rule-list [role="menuitem"]'));
+ assert.equal(container.querySelector('[aria-label="收起详情"]'),null,'rules do not open details');
+ assert.equal(ipc.calls.some(call=>['show_rule_menu','show_preview'].includes(call.command)),false);
+ await act(async()=>{trigger.click();await settle();});assert.equal(container.querySelector('.inline-rule-list'),null);
+ await act(async()=>root.unmount());container.remove();
 });
