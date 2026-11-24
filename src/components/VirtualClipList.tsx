@@ -23,6 +23,7 @@ type Props = {
   edge: TriggerEdge;
   horizontal?: boolean;
   cardWidth?: number;
+  cardHeight?: number;
   columns: number;
   selectedId: number | null;
   resetKey: string;
@@ -35,7 +36,7 @@ type Props = {
 };
 
 /** Each virtual item is one row of cards, so two-column layouts stay aligned. */
-export function VirtualClipList({ clips, className, edge, columns, selectedId, resetKey, maxLines, style, label, children, renderRow, onVisibleIds, horizontal: horizontalLayout, cardWidth }: Props) {
+export function VirtualClipList({ clips, className, edge, columns, selectedId, resetKey, maxLines, style, label, children, renderRow, onVisibleIds, horizontal: horizontalLayout, cardWidth, cardHeight }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const scrolledSelection=useRef<number|null>(null);
   const [rect, setRect] = useState({ width: 350, height: 0 });
@@ -89,10 +90,11 @@ export function VirtualClipList({ clips, className, edge, columns, selectedId, r
       .flatMap(item => clips.slice(item.index * lanes, (item.index + 1) * lanes).map(clip => clip.id)));
   }, [items, virtual.scrollOffset, virtual.scrollRect, horizontal, clips, lanes, onVisibleIds]);
   return <div ref={host} className={`${className} virtual-clip-list`} aria-label={label} style={style}>
-    {clips.length > 0 && <div className="virtual-list-content" style={horizontal ? { width: virtual.getTotalSize(), height: '100%' } : { height: virtual.getTotalSize(), width: '100%' }}>
+    {clips.length > 0 && <div className="virtual-list-content" style={horizontal ? {width:virtual.getTotalSize(),height:cardHeight??'100%'} : {height:virtual.getTotalSize(),width:'100%'}}>
       {virtual.getVirtualItems().map(item => <div key={item.key} data-index={item.index} ref={horizontal || side ? undefined : virtual.measureElement} className="virtual-clip-slot" style={horizontal
-        ? { width: cardSize, height: '100%', transform: `translateX(${item.start}px)` }
-        : { width: '100%', height: side ? cardSize : undefined, gridTemplateColumns: `repeat(${lanes}, minmax(0, 1fr))`, transform: `translateY(${item.start}px)` }}>
+        ? {width:cardSize,height:'100%',transform:`translateX(${item.start}px)`}
+        : {width:'100%',height:side?cardSize:undefined,gridTemplateColumns:`repeat(${lanes}, minmax(0, 1fr))`,transform:`translateY(${item.start}px)`}}>
+
         {clips.slice(item.index * lanes, (item.index + 1) * lanes).map(renderRow)}
       </div>)}
     </div>}

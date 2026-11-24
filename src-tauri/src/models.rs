@@ -57,7 +57,7 @@ impl Preferences {
         match (self.panel_layout.as_str(), details) {
             ("horizontal", true) => (800.0, 660.0),
             ("horizontal", false) => (800.0, 318.0),
-            ("columns", true) => (800.0, 660.0),
+            ("columns", true) => (866.0, 660.0),
             ("columns", false) => (342.0, 660.0),
             (_, true) => (728.0, 660.0),
             (_, false) => (378.0, 660.0),

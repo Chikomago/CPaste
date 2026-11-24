@@ -561,13 +561,11 @@ button[data-shortcut-hint]{position:relative}
    the held trigger (⌘ / Ctrl) and maps remaining keys through one glyph table,
    so this single style renders both platforms. The length attribute shrinks
    longer combinations so they never spill out of a 24px row button. */
-button[data-shortcut-hint]::after{content:attr(data-shortcut-hint);position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;border-radius:5px;background:var(--accent-fill);color:#fff;font:inherit;font-size:11px;font-weight:700;line-height:1;letter-spacing:-.02em;white-space:nowrap;pointer-events:none}
+button[data-shortcut-hint]::after{content:attr(data-shortcut-hint);position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;border-radius:9px;background:var(--accent-fill);color:#fff;font:inherit;font-size:11px;font-weight:700;line-height:1;letter-spacing:-.02em;white-space:nowrap;pointer-events:none}
 button[data-shortcut-hint][data-shortcut-len='3']::after{font-size:9.5px}
 button[data-shortcut-hint][data-shortcut-len='4']::after,button[data-shortcut-hint][data-shortcut-len='5']::after{font-size:8px;letter-spacing:-.04em}
 button[data-shortcut-hint]>svg{visibility:hidden}
 button[data-shortcut-hint]:hover::after{background:var(--accent-fill)}
-.row-actions:has([data-shortcut-hint]){opacity:1;visibility:visible;pointer-events:auto}
-.row-actions:has([data-shortcut-hint])+.row-time{opacity:0}
 .row-actions:has([data-shortcut-hint]){overflow:hidden}
 .clip-quick-actions-dropdown .sidebar-work-header,.clip-quick-actions-dropdown .media-tool-history{display:none}
 .clip-quick-actions-dropdown .quick-tool-list{gap:0}
@@ -608,4 +606,4 @@ button[data-shortcut-hint]:hover::after{background:var(--accent-fill)}
 .settings-window .settings-body h2{color:var(--text)}
 .row-app-shortcut{position:relative;display:inline-flex;flex:none}
 .result-item .row-app-shortcut .position-key{inset:0;min-width:0;width:100%;height:100%;border-radius:4px;box-shadow:none}
-.result-item .row-format-shortcut{position:static;min-width:20px;height:20px;box-shadow:none}
+.result-item .row-format-shortcut{position:absolute;inset:0 auto 0 0;min-width:20px;height:100%;border-radius:9px;box-shadow:none}

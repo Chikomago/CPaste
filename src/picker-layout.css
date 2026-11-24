@@ -33,12 +33,12 @@
 .picker-shell[class*='layout-'] .result-row{width:100%;padding:11px 12px;gap:10px!important;min-height:82px;max-height:none!important;display:flex;flex-direction:column;align-items:flex-start;border:0!important;border-radius:11px;box-shadow:none!important;background:var(--panel);color:var(--text);overflow:hidden}
 .picker-shell[class*='layout-'] .result-row.selected{background:var(--blue-soft)}
 .picker-shell[class*='layout-'] .result-row:hover:not(.selected){background:color-mix(in srgb,var(--panel) 70%,var(--hover))}
-.picker-shell[class*='layout-'] .result-row .format-heading{display:flex;align-items:center;gap:5px;min-height:18px;line-height:18px;font-size:12px;padding-right:78px;color:var(--muted)}
+.picker-shell[class*='layout-'] .result-row .format-heading{display:flex;align-items:center;gap:5px;min-height:17px;line-height:17px;font-size:11px;padding-right:78px;color:var(--muted)}
 .picker-shell[class*='layout-'] .format-heading>svg{color:var(--blue);flex:none}
 .picker-shell[class*='layout-'] .result-text{min-height:0;flex:0 0 auto;width:100%;justify-content:flex-start}
-.picker-shell[class*='layout-'] .result-summary{font-size:14px;line-height:1.55;max-height:calc(21.7px * var(--item-max-lines,2));-webkit-line-clamp:var(--item-max-lines,2);line-clamp:var(--item-max-lines,2);white-space:normal}
+.picker-shell[class*='layout-'] .result-summary{font-size:12px;line-height:1.55;max-height:calc(18.6px * var(--item-max-lines,2));-webkit-line-clamp:var(--item-max-lines,2);line-clamp:var(--item-max-lines,2);white-space:normal}
 .picker-shell[class*='layout-'] .result-bottom{display:none}
-.picker-shell[class*='layout-'] .row-time{top:11px;right:12px;font-size:12px;line-height:18px}
+.picker-shell[class*='layout-'] .row-time{top:11px;right:12px;font-size:11px;line-height:17px}
 .picker-shell[class*='layout-'] .row-actions{top:5px;right:5px;background:var(--panel);border:0;box-shadow:none}
 .picker-shell[class*='layout-'] .row-actions button{width:25px;height:28px}
 .picker-shell[class*='layout-'] .result-row.image-row img{max-height:104px;width:auto;max-width:100%;object-fit:contain;border-radius:7px}
@@ -54,21 +54,21 @@
 .picker-shell.layout-sidebar .filter-bar{height:auto;flex-direction:column;align-items:center;padding:13px 0 7px;gap:7px}
 .picker-shell.layout-sidebar .filter-scroll{flex:none;flex-direction:column;gap:7px;overflow:visible}
 .picker-shell.layout-sidebar .filter-scroll button{height:40px;width:40px;padding:0}
+/* The rail already supplies the same 8px gutter on both sides of its buttons. */
+.picker-shell.layout-sidebar :is(.pinned-list,.result-list){padding-left:0}
 .layout-sidebar .history-heading,.layout-sidebar .picker-body,.layout-sidebar .picker-footer{border-right:1px solid var(--line)}
 .layout-sidebar:not(.with-details) :is(.history-heading,.picker-body,.picker-footer){border-right:0}
 /* B: one horizontal shelf; its position never changes when details collapse. */
-.layout-horizontal>.picker{grid-template-columns:minmax(0,1fr);grid-template-rows:56px 48px 174px minmax(0,1fr) 36px;grid-template-areas:'header' 'filters' 'history' 'details' 'footer'}
-.layout-horizontal:not(.with-details)>.picker{grid-template-rows:56px 48px 174px 0 36px}
+.layout-horizontal>.picker{grid-template-columns:minmax(0,1fr);grid-template-rows:56px 48px auto minmax(0,1fr) 36px;grid-template-areas:'header' 'filters' 'history' 'details' 'footer'}
 .picker-shell.layout-horizontal .picker-body{border-radius:0;padding:4px 6px 12px}
-.picker-shell.layout-horizontal .picker-results{flex-direction:row}
-.picker-shell.layout-horizontal :is(.pinned-list,.result-list){height:100%;padding:0 8px;overflow-x:auto;overflow-y:hidden;max-height:none;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.picker-shell.layout-horizontal .picker-results{flex-direction:row;align-items:flex-start}
+.picker-shell.layout-horizontal :is(.pinned-list,.result-list){height:auto;padding:0 8px;overflow-x:auto;overflow-y:hidden;max-height:none;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 .picker-shell.layout-horizontal .pinned-list{flex:0 0 auto;max-width:40%}
-.picker-shell.layout-horizontal .virtual-clip-slot,.picker-shell.layout-horizontal .result-item{height:150px}
-.picker-shell.layout-horizontal .result-row{height:150px;padding:13px 14px;border-radius:12px}
-.picker-shell.layout-horizontal .result-row .format-heading{padding-right:0}
-.picker-shell.layout-horizontal .result-summary{-webkit-line-clamp:var(--item-max-lines,2);line-clamp:var(--item-max-lines,2);max-height:calc(22.4px * var(--item-max-lines,2));line-height:1.6}
-.picker-shell.layout-horizontal .row-time{top:auto;bottom:12px;left:14px;right:auto;font-size:12px}
-.picker-shell.layout-horizontal .image-row img{max-height:80px}
+/* Horizontal cards share a stable frame across content types. */
+.picker-shell.layout-horizontal .result-row{height:150px!important;min-height:150px!important;padding:11px 13px;border-radius:12px}
+.picker-shell.layout-horizontal .result-row .format-heading{padding-right:78px}
+.picker-shell.layout-horizontal .result-summary{-webkit-line-clamp:var(--item-max-lines,2);line-clamp:var(--item-max-lines,2);max-height:calc(19.2px * var(--item-max-lines,2));line-height:1.6}
+.picker-shell.layout-horizontal .image-row img{max-height:60px}
 .picker-shell.layout-horizontal .side-preview{border-top:1px solid var(--line)}
 /* C: fixed 340px history, a reader and a separate action dock. */
 .layout-columns>.picker{grid-template-columns:340px minmax(0,1fr);grid-template-rows:56px 48px 43px minmax(0,1fr) 36px;grid-template-areas:'header header' 'filters filters' 'heading details' 'history details' 'footer details'}
@@ -99,13 +99,15 @@
 .picker-shell[class*='layout-'] .preview-heading{height:43px;display:flex;align-items:center;padding:0 15px;border:0;font-size:12px}
 .picker-shell[class*='layout-'] .preview-heading strong{font-weight:500}
 .picker-shell[class*='layout-'] .preview-stats{font-size:12px;color:var(--muted)}
-.picker-shell[class*='layout-'] .preview-body{font-size:15px;line-height:1.85;padding:10px 15px 18px}
+.picker-shell[class*='layout-'] .preview-body{font-size:13px;line-height:1.7;padding:10px 15px 18px}
 .picker-shell[class*='layout-'] .preview-body img{max-height:none;max-width:100%;border-radius:8px}
 .picker-shell[class*='layout-'] .clip-details-footer{background:transparent}
 .picker-shell[class*='layout-'] .clip-details-meta{padding:13px 21px 16px;font-size:12px;line-height:1.6;gap:5px}
 .picker-shell[class*='layout-'] .clip-details-meta dd{color:var(--text)}
 .picker-shell[class*='layout-'] .sidebar-editor,.picker-shell[class*='layout-'] .sidebar-token-panel{background:var(--bg)}
-.picker-shell[class*='layout-'] .sidebar-editor textarea{border:0;box-shadow:none;background:transparent;font-size:15px;line-height:1.85}
+.picker-shell[class*='layout-'] .sidebar-editor textarea{border:0;box-shadow:none;background:transparent;font-size:13px;line-height:1.7}
+/* Content text stays regular weight; block synthesized bold rendering. */
+.picker-shell[class*='layout-'] :is(.result-summary,.result-text,.preview-body,.preview-body p,.sidebar-editor textarea,.result-bottom){font-weight:400;font-synthesis:none}
 /* The horizontal reader combines management and tools in a single toolbar. */
 .layout-horizontal .clip-details{display:grid;grid-template-columns:minmax(0,1fr) 204px;grid-template-rows:49px minmax(0,1fr)}
 .layout-horizontal .clip-details-controls{grid-column:1/-1;display:flex;align-items:center;padding:0 8px}
@@ -118,12 +120,12 @@
 .layout-horizontal .clip-details-meta dd{text-align:left}
 .layout-horizontal .clip-details-meta dt{margin-bottom:3px}
 /* Separate dock: management, transfers and content tools in one predictable column. */
-.layout-columns .clip-details{display:grid;grid-template-columns:minmax(0,1fr) 124px;grid-template-rows:minmax(0,1fr) auto}
+.layout-columns .clip-details{display:grid;grid-template-columns:minmax(0,1fr) 190px;grid-template-rows:minmax(0,1fr) auto}
 .layout-columns .clip-details-controls{grid-column:2;grid-row:1/3;border-left:1px solid var(--line);padding:0 12px 14px;display:flex;flex-direction:column;min-height:0}
 .dock-heading{height:43px;min-height:43px;display:flex;align-items:center;font-size:12px;font-weight:600;color:var(--text)}
 .picker-shell.layout-columns .clip-details-header{height:auto;padding:0;flex:none}
 .layout-columns .clip-details-toolbar{flex-direction:column;align-items:stretch;gap:5px}
-.picker-shell.layout-columns .clip-details-header button,.picker-shell.layout-columns .clip-secondary-row button{display:flex;align-items:center;justify-content:flex-start;gap:10px;width:100%;height:36px;padding:0 6px;font-size:13px;color:var(--text)}
+.picker-shell.layout-columns .clip-details-header button,.picker-shell.layout-columns .clip-secondary-row button{display:flex;align-items:center;justify-content:flex-start;gap:10px;width:100%;height:36px;padding:0 6px;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden}
 .layout-columns .clip-details-toolbar button svg,.layout-columns .clip-secondary-row button svg{color:var(--muted)}
 .layout-columns .clip-details-toolbar button.is-active svg{color:var(--blue)}
 .picker-shell.layout-columns .clip-details-actions{height:auto;display:flex;flex-direction:column;align-items:stretch;padding:0;gap:0}
@@ -132,12 +134,12 @@
 .picker-shell.layout-columns .clip-transfer-main{justify-content:flex-start;padding-left:6px;gap:10px;height:36px}
 .picker-shell.layout-columns .clip-transfer-toggle{height:36px}
 .layout-columns .clip-secondary-row{flex-direction:column;align-items:stretch;gap:5px}
-.layout-columns .clip-secondary-row button>span{display:inline;white-space:normal;text-align:left}
+.layout-columns .clip-secondary-row button>span{display:inline;white-space:nowrap;text-align:left}
 .picker-shell.layout-columns .clip-secondary-row button svg{flex:none}
 .layout-columns .clip-details-content{grid-column:1;grid-row:1;margin:0 5px}
 .layout-columns .clip-details-footer{grid-column:1;grid-row:2;min-width:0}
 .picker-shell.layout-columns .clip-details-meta{padding:14px 18px 16px;font-size:11px}
-.picker-shell.layout-columns .clip-transfer-menu{top:136px;right:128px;max-width:none}
+.picker-shell.layout-columns .clip-transfer-menu{top:136px;right:194px;max-width:none}
 .picker-shell[class*='layout-'] .clip-quick-actions-dropdown{z-index:25}
 :root[data-disable-animations='false'] .picker-shell[class*='layout-'] :is(.result-row,.filter-scroll button,.header-icon,.clip-details button){transition:background-color 150ms ease,color 150ms ease,transform 110ms ease}
 :root[data-disable-animations='false'] .picker-shell[class*='layout-'] .side-preview:not([hidden]){animation:motion-surface-in 180ms ease-out}
@@ -161,7 +163,7 @@
 /* Keep list geometry stable throughout the native window resize, including borders. */
 .picker-shell.layout-sidebar :is(.history-heading,.picker-body,.picker-footer),.picker-shell.layout-columns :is(.history-heading,.picker-body,.picker-footer){border-right:0;box-shadow:inset -1px 0 var(--line)}
 .picker-shell.layout-sidebar:not(.with-details) :is(.history-heading,.picker-body,.picker-footer),.picker-shell.layout-columns:not(.with-details) :is(.history-heading,.picker-body,.picker-footer){box-shadow:none}
-.picker-shell.layout-horizontal .row-actions{top:auto;bottom:6px;left:5px;right:5px;justify-content:flex-end}
+.picker-shell.layout-horizontal .row-actions{top:5px;right:5px}
 /* Draw the list/detail boundary once, independent of rounded list sections. */
 .picker-shell.layout-sidebar :is(.history-heading,.picker-body,.picker-footer),.picker-shell.layout-columns :is(.history-heading,.picker-body,.picker-footer){box-shadow:none}
 .picker-shell.layout-sidebar.with-details>.picker::after,.picker-shell.layout-columns.with-details>.picker::after{content:'';position:absolute;width:1px;bottom:0;background:var(--line);pointer-events:none;z-index:6}
@@ -182,3 +184,61 @@
 .picker-shell[class*='layout-'] .token-toolbar .token-back-button{background:transparent}
 .picker-shell[class*='layout-'] .token-dialog>.token-transfer-actions{justify-content:center;align-items:center;gap:12px;border-top:0;flex:none}
 .token-transfer-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+/* Let vertical text cards fit one line without retaining two-line blank space. */
+.picker-shell.layout-sidebar .result-row.text-row,.picker-shell.layout-columns .result-row.text-row{min-height:0}
+
+.picker-shell.layout-horizontal .result-row.image-row .image-thumbnail{max-height:90px;flex:0 1 auto}
+.picker-shell.layout-horizontal .result-row.image-row .image-thumbnail img{max-height:88px;object-fit:contain}
+
+/* Toolbars stay visually distinct without changing geometry when keycaps appear. */
+.picker-shell[class*='layout-'] .row-actions{height:28px;padding:1px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--panel) 82%,var(--muted));box-shadow:0 2px 7px #0001}
+.picker-shell[class*='layout-'] .row-actions button{height:24px;border-radius:8px}
+.picker-shell.layout-horizontal .row-actions{top:auto;bottom:5px;right:5px}
+.picker-shell.layout-horizontal .result-item .row-time{opacity:1}
+.picker-shell[class*='layout-'] .format-heading{position:relative}
+.picker-shell[class*='layout-'] .position-key{border-radius:9px}
+
+/* Reserve the image card's bottom strip for its floating tools. */
+.picker-shell.layout-horizontal .result-row.image-row{padding-bottom:40px}
+.picker-shell.layout-horizontal .result-row.image-row .image-thumbnail{max-height:72px}
+.picker-shell.layout-horizontal .result-row.image-row .image-thumbnail img{max-height:70px}
+/* Fit the complete image into the horizontal reader, including very tall images. */
+.picker-shell.layout-horizontal .clip-details-content:has(.retained-image-preview:not([hidden])){overflow:hidden}
+.layout-horizontal .retained-image-preview:not([hidden]){height:100%;min-height:0}
+.picker-shell.layout-horizontal .clip-details .preview-image-card{height:100%;min-height:0;grid-template-rows:43px minmax(0,1fr)}
+.picker-shell.layout-horizontal .preview-image-card .preview-body{grid-row:2;display:flex;align-items:center;justify-content:center;min-height:0;height:100%;overflow:hidden}
+.picker-shell.layout-horizontal .preview-image-card .preview-body img{display:block;width:auto;height:auto;max-width:100%;max-height:100%;object-fit:contain;flex:none}
+/* Editors share panel chrome; the editable surface stays distinct in each theme. */
+.picker-shell[class*='layout-'] .clip-edit-dialog:has(>textarea){background:var(--bg)}
+.picker-shell[class*='layout-'] .clip-edit-dialog>textarea,.picker-shell[class*='layout-'] .sidebar-editor>textarea{background:var(--panel)}
+.picker-shell[class*='layout-'] .sidebar-editor>.sidebar-work-header{border-bottom:0}
+.picker-shell[class*='layout-'] .sidebar-editor>.clip-edit-actions{border-top:0}
+/* Compact standalone editor; embedded editing keeps its own spacing. */
+.picker-shell[class*='layout-'] .clip-edit-dialog:has(>textarea){gap:6px;padding:12px}
+.picker-shell[class*='layout-'] .clip-edit-dialog>textarea{border:0;outline:0;box-shadow:none;padding:9px}
+.picker-shell[class*='layout-'] .clip-edit-dialog>textarea:focus{border:0;outline:0;box-shadow:none}
+.picker-shell[class*='layout-'] .clip-edit-dialog:has(>textarea) .clip-edit-actions{gap:6px}
+/* Settings is the 16px reference for all navigation and action glyphs. */
+.picker-shell[class*='layout-']{--picker-action-icon-size:16px}
+.picker-shell[class*='layout-'] :is(.header-icon,.filter-scroll button,.sort-control,.clip-details-toolbar button,.clip-secondary-row button,.clip-transfer-main,.clip-transfer-toggle,.row-actions button,.clear-scope-button,.token-transfer-actions button,.token-back-button,.context-menu button)>svg{width:var(--picker-action-icon-size);height:var(--picker-action-icon-size);flex:0 0 var(--picker-action-icon-size)}
+/* Keep normal/active states, but give every enabled action the same hover feedback. */
+.picker-shell[class*='layout-'] :is(.header-icon,.sort-control,.clip-details-toolbar>button,.clip-secondary-row>button,.clip-transfer-main,.clip-transfer-toggle,.row-actions>button,.clear-scope-button):not(:disabled):hover{background:var(--blue-soft);color:var(--blue)}
+.picker-shell[class*='layout-'] :is(.clip-details-toolbar,.clip-secondary-row,.row-actions)>button:not(:disabled):hover>svg{color:inherit}
+.picker-shell[class*='layout-'] :is(.clip-details-toolbar,.clip-secondary-row,.row-actions)>button.danger:not(:disabled):hover{background:#d554541a;color:#d55454}
+/* All image readers reserve a bottom-right fit/fill control without covering pixels. */
+.picker-shell[class*='layout-'] .clip-details-content:has(.retained-image-preview:not([hidden])){overflow:hidden}
+.picker-shell[class*='layout-'] .retained-image-preview:not([hidden]){height:100%;min-height:0}
+.picker-shell[class*='layout-'] .clip-details .preview-image-card{height:100%;min-height:0;grid-template-rows:43px minmax(0,1fr) 36px}
+.picker-shell[class*='layout-'] .clip-details .preview-image-card .preview-body{grid-row:2;min-height:0;height:100%;padding:12px;overflow:hidden}
+.picker-shell[class*='layout-'] .clip-details .preview-image-stage{width:100%;height:100%;min-height:0;border-radius:10px;overflow:hidden}
+.picker-shell[class*='layout-'] .clip-details .preview-image-card .preview-body .preview-image-stage>img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;border-radius:0}
+/* Scale the short dimension to the viewport; scroll only the long dimension. */
+.picker-shell[class*='layout-'] .clip-details .preview-image-card[data-image-fit='fill'][data-scroll-axis='y'] .preview-image-stage{overflow-x:hidden;overflow-y:auto}
+.picker-shell[class*='layout-'] .clip-details .preview-image-card[data-image-fit='fill'][data-scroll-axis='y'] .preview-image-stage>img{width:100%;height:auto;max-width:100%;max-height:none;object-fit:contain}
+.picker-shell[class*='layout-'] .clip-details .preview-image-card[data-image-fit='fill'][data-scroll-axis='x'] .preview-image-stage{overflow-x:auto;overflow-y:hidden}
+.picker-shell[class*='layout-'] .clip-details .preview-image-card[data-image-fit='fill'][data-scroll-axis='x'] .preview-image-stage>img{width:auto;height:100%;max-width:none;max-height:100%;object-fit:contain}
+.preview-image-controls{grid-column:1/-1;grid-row:3;display:flex;align-items:center;justify-content:flex-end;min-height:0;padding:0 6px 8px}
+.image-fit-button{display:grid;place-items:center;width:28px;height:28px;flex:none;padding:0;border:0;border-radius:8px;background:transparent;color:var(--muted);font:inherit;font-size:11px;line-height:1}
+.image-fit-button>svg{display:block;width:var(--picker-action-icon-size,16px);height:var(--picker-action-icon-size,16px)}
+.image-fit-button:hover:not(:disabled){background:var(--blue-soft);color:var(--blue)}
+

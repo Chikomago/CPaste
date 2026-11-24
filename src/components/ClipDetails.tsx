@@ -13,7 +13,7 @@ export function ClipDetails({ layout = 'sidebar', clip, active, busy = false, tr
   const topActions = [
     { id: 'pin', label: clip?.pinned ? '取消置顶' : '置顶', icon: Pin },
     { id: 'favorite', label: clip?.favorite ? '取消收藏' : '收藏', icon: Heart },
-    ...(clip?.kind === 'image' && !clip.sensitive_masked ? [{ id: 'open_image', label: '用系统预览打开', icon: ExternalLink }] : []),
+    ...(clip?.kind === 'image' && !clip.sensitive_masked ? [{ id: 'open_image', label: '从系统打开', icon: ExternalLink }] : []),
     ...(clip?.kind === 'files' && !clip.sensitive_masked ? [{ id: 'reveal_file', label: '打开文件位置', icon: FolderOpen }] : []),
     ...(editable ? [{ id: 'edit', label: '编辑内容', icon: Pencil }] : []),
     { id: 'delete', label: '删除', icon: Trash2 },
@@ -92,7 +92,7 @@ export function ClipDetails({ layout = 'sidebar', clip, active, busy = false, tr
       </div>
     </>}
     </div>}
-    <div className={expanded ? 'clip-details-content' : undefined} tabIndex={expanded ? 0 : undefined} aria-label={expanded ? tr('记录内容') : undefined}><RetainedPreview clip={clip} active={active} imageMetadata={expanded}/>
+    <div className={expanded ? 'clip-details-content' : undefined} tabIndex={expanded ? 0 : undefined} aria-label={expanded ? tr('记录内容') : undefined}><RetainedPreview clip={clip} active={active} imageMetadata={expanded} imageControls={expanded}/>
     {expanded && active && !clip && <p className="clip-details-empty">{tr('选择一条记录查看详情')}</p>}</div>
     {expanded && active && clip && <footer className="clip-details-footer">
       <dl className="clip-details-meta"><div><dt>{tr('来源应用')}</dt><dd>{clip.source_app || tr('未知应用')}</dd></div><div><dt>{tr('创建时间')}</dt><dd>{date(clip.created_at)}</dd></div>{clip.updated_at && <div><dt>{tr('修改时间')}</dt><dd>{date(clip.updated_at)}</dd></div>}{typeof clip.use_count === 'number' && <div><dt>{tr('使用次数')}</dt><dd>{clip.use_count}</dd></div>}</dl>

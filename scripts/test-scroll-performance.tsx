@@ -288,7 +288,8 @@ test('embedded editor stays in its region, preserves drafts while hidden and rep
   fail = false;
   await act(async () => (container.querySelector('.primary') as HTMLButtonElement).click());
   assert.equal(saved, 'Original draft');
-  await act(async () => (container.querySelector('button[aria-label="返回详情"]') as HTMLButtonElement).click());
+  assert.equal(container.querySelector('button[aria-label="返回详情"]'),null);
+  await act(async () => (container.querySelector('.clip-edit-actions button:not(.primary)') as HTMLButtonElement).click());
   assert.equal(cancelled, true);
   await act(async () => root.unmount()); container.remove();
 });
@@ -332,7 +333,7 @@ test('media tools use native processing, keep undo after reopening, and expose f
  assert.equal(container.querySelector('input[type="number"]'),null);
  assert.equal(container.querySelector('.media-tool-options'),null);assert.match(container.textContent!,/向右旋转/);
  await act(async()=>root.render(<ClipDetails clip={image} active expanded onAction={()=>{}}/>));
- assert.ok(container.querySelector('.clip-details-header button[aria-label="用系统预览打开"]'));
+ assert.ok(container.querySelector('.clip-details-header button[aria-label="从系统打开"]'));
  assert.ok(container.querySelector('.clip-details-actions button[aria-label="图片另存为"]'));
  assert.ok(container.querySelector('.clip-details-actions button[aria-label="规则"]'));
  const file={...image,id:987655,kind:'files',files:['/tmp/a.txt','/tmp/b.pdf']};
@@ -719,5 +720,54 @@ test('Space toggles details and row rules remain anchored inside the picker with
  assert.equal(container.querySelector('[aria-label="收起详情"]'),null,'rules do not open details');
  assert.equal(ipc.calls.some(call=>['show_rule_menu','show_preview'].includes(call.command)),false);
  await act(async()=>{trigger.click();await settle();});assert.equal(container.querySelector('.inline-rule-list'),null);
+ await act(async()=>root.unmount());container.remove();
+});
+
+test('horizontal virtual rows keep their offsets through all 1000 records',async()=>{
+ viewport={width:800,height:150};
+ const records=Array.from({length:1000},(_,i)=>({...clips[0],id:i+1}));
+ const container=document.createElement('div');document.body.append(container);const root=createRoot(container);
+ const render=(selectedId:number|null)=><VirtualClipList clips={records} edge="none" horizontal cardWidth={202} cardHeight={150} columns={1} selectedId={selectedId} resetKey="horizontal-thousand" maxLines={2} className="result-list" renderRow={clip=><div key={clip.id} className="result-item" data-clip-id={clip.id}>{clip.id}</div>}/>;
+ await act(async()=>{root.render(render(null));await settle();});
+ const host=container.querySelector('.virtual-clip-list')as HTMLElement;
+ Object.defineProperty(host,'scrollWidth',{get(){return parseFloat((host.firstElementChild as HTMLElement).style.width);}});
+ assert.ok(container.querySelectorAll('.result-item').length<30);
+ await act(async()=>{root.render(render(1000));await settle();});await act(settle);
+ const last=container.querySelector('[data-index="999"]')as HTMLElement;
+ assert.ok(last?.querySelector('[data-clip-id="1000"]'));
+ assert.equal(last.style.transform,'translateX(208791px)');
+ assert.equal((container.querySelector('.virtual-list-content')as HTMLElement).style.height,'150px');
+ assert.ok(container.querySelectorAll('.result-item').length<30);
+ await act(async()=>root.unmount());container.remove();viewport={width:350,height:500};
+});
+
+test('hidden row actions reject shortcuts, while a hovered toolbar targets its own record',async()=>{
+ const {Picker}=await import('../src/windows/Picker');const {defaults}=await import('../src/preferences');
+ const record={id:987654,kind:'text',title:'Shortcut target',plain_text:'Shortcut target',files:[],source_app:'Test',source_path:'',created_at:new Date().toISOString(),updated_at:new Date().toISOString(),use_count:0,pinned:false,favorite:false,sensitive_masked:false};
+ const ipc=mockRuleIpc([],command=>command==='get_preferences'?defaults:command==='list_clips'?[record]:command==='toggle_pin'?true:null);
+ const container=document.createElement('div');document.body.append(container);const root=createRoot(container);
+ await act(async()=>{root.render(<Picker/>);await settle();});await act(settle);
+ const press=()=>document.body.dispatchEvent(new window.KeyboardEvent('keydown',{key:'p',code:'KeyP',ctrlKey:true,bubbles:true,cancelable:true}));
+ await act(async()=>{press();await settle();});assert.equal(ipc.calls.filter(c=>c.command==='toggle_pin').length,0);
+ const row=container.querySelector('.result-item')as HTMLElement;
+ await act(async()=>{row.dispatchEvent(new window.MouseEvent('mouseover',{bubbles:true,relatedTarget:document.body}));await settle();});
+ await act(async()=>{press();await settle();});assert.equal(ipc.calls.filter(c=>c.command==='toggle_pin').length,1);
+ await act(async()=>{root.unmount();});container.remove();
+});
+
+test('image fit/fill controls preserve the decoded image and default new images to fit',async()=>{
+ let reads=0;
+ const ipc=mockRuleIpc([],command=>command==='get_clip_image_path'?(reads++,'fit-toggle-image'):null);
+ const {ContentPreview}=await import('../src/components/ContentPreview');
+ const clip={id:781234,kind:'image',sensitive_masked:false,created_at:'2026-11-15T00:00:00Z',source_app:'Test',files:[],file_sizes:[],plain_text:''}as any;
+ const container=document.createElement('div');document.body.append(container);const root=createRoot(container);
+ await act(async()=>{root.render(<ContentPreview clip={clip} imageMetadata imageControls/>);await settle();});
+ const image=container.querySelector('img');assert.ok(image);assert.equal(container.querySelector('.preview-image-card')?.getAttribute('data-image-fit'),'fit');
+ await act(async()=>{(container.querySelector('.image-fit-button')as HTMLButtonElement).click();await settle();});
+ assert.equal(container.querySelector('.preview-image-card')?.getAttribute('data-image-fit'),'fill');assert.equal(container.querySelector('.image-fit-button')?.getAttribute('aria-label'),'适应');
+ assert.equal(container.querySelector('img'),image);assert.equal(reads,1);
+ await act(async()=>{(container.querySelector('.image-fit-button')as HTMLButtonElement).click();await settle();});assert.equal(container.querySelector('.preview-image-card')?.getAttribute('data-image-fit'),'fit');
+ await act(async()=>{(container.querySelector('.image-fit-button')as HTMLButtonElement).click();root.render(<ContentPreview clip={{...clip,id:781235}} imageMetadata imageControls/>);await settle();});
+ assert.equal(container.querySelector('.preview-image-card')?.getAttribute('data-image-fit'),'fit');assert.equal(ipc.calls.filter(c=>c.command==='get_clip_image_path').length,2);
  await act(async()=>root.unmount());container.remove();
 });

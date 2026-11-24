@@ -6,6 +6,8 @@ export function setLanguage(language: Language) {
 }
 export function isEnglish() { return current === 'en-US'; }
 const english: Record<string, string> = {
+  "充满":"Fill",
+  "适应":"Fit",
   "打开详情":"Toggle details",
   "展开详情":"Show details",
   "收起详情":"Hide details",
@@ -111,7 +113,7 @@ const english: Record<string, string> = {
   '恢复上一次文字工具操作前的剪贴板':'Restore the clipboard from before the last text-tool action','撤销剪贴板处理快捷键':'Undo clipboard transformation shortcut','快捷键重复或无效':'The shortcut is invalid or already in use',
   '文字工具':'Text tools','清理':'Clean up','排版':'Typography','列表':'Lines','链接':'Links','转换':'Convert',
   '去首尾空白':'Trim whitespace','合并空行':'Merge blank lines','压成一行':'Join into one line','去掉行号':'Remove line numbers','清除隐形字符':'Remove invisible characters','中英文间加空格':'Space Chinese and English','标点转全角':'Full-width punctuation','标点转半角':'Half-width punctuation','去重行':'Remove duplicate lines','排序行':'Sort lines','净化链接':'Remove Chinese from links','提取链接':'Extract link fragments',
-  '转纯文本':'Convert to plain text','转 Markdown':'Convert to Markdown','转富文本':'Convert to rich text','去掉 Markdown 标记':'Remove Markdown formatting','处理结果':'Result','撤销上一步处理':'Undo last transformation','撤销剪贴板处理':'Undo clipboard change','保存到下载目录':'Save to Downloads','图片另存为':'Save image as','用系统预览打开':'Open in image viewer',
+  '转纯文本':'Convert to plain text','转 Markdown':'Convert to Markdown','转富文本':'Convert to rich text','去掉 Markdown 标记':'Remove Markdown formatting','处理结果':'Result','撤销上一步处理':'Undo last transformation','撤销剪贴板处理':'Undo clipboard change','保存到下载目录':'Save to Downloads','图片另存为':'Save image as','从系统打开':'Open with system app',
   '未知文字工具':'Unknown text tool','这条记录不支持文字工具':'Text tools are unavailable for this item','敏感内容已遮盖，无法处理':'Sensitive content is masked and cannot be processed','处理结果过大':'The result is too large','处理结果不能超过 1 MB':'The result must be under 1 MB','处理结果为空':'The result is empty','图片不存在或已被遮盖':'The image is missing or masked','无法打开系统图片预览':'Could not open the system image viewer','剪贴板内容已变化，无法撤销上次处理':'The clipboard has changed; the previous transformation cannot be undone',
   '更多复制方式':'Copy options','更多粘贴方式':'Paste options',
   '返回详情':'Back to details',

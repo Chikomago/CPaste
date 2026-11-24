@@ -24,7 +24,7 @@ pub(crate) fn menu_text<'a>(language: &str, chinese: &'a str) -> &'a str {
         "文字工具" => "Text tools",
         "保存到下载目录" => "Save to Downloads",
         "图片另存为" => "Save image as",
-        "用系统预览打开" => "Open in image viewer",
+        "从系统打开" => "Open with system app",
         "预览内容" => "Preview",
         "编辑内容" => "Edit content",
         "取消收藏" => "Remove favorite",
@@ -182,7 +182,7 @@ pub(crate) async fn show_clip_context_menu(
         {
             add("save_image", "保存到下载目录")?;
             add("save_image_as", "图片另存为")?;
-            add("open_image", "用系统预览打开")?;
+            add("open_image", "从系统打开")?;
         }
         add("favorite", if favorite { "取消收藏" } else { "收藏" })?;
         add("pin", if pinned { "取消置顶" } else { "置顶" })?;
